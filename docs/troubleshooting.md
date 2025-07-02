@@ -43,7 +43,6 @@ External DNS does not delete DNS records during uninstallation. After reinstalla
 ### Certificate not issued by Cert Manager
 + Describe the pending certificate challenge. If it shows message similar to:
 
-
 ```
 Reason:      Waiting for HTTP-01 challenge propagation: failed to perform self check GET request 'http://DOMAIN_NAME/.well-known/acme-challenge/6AQ5cRc7J6FNQ9xGOBDI5_G1lHsNM5J5ivbS3iSHd3c': Get "http://DOMAIN_NAME/.well-known/acme-challenge/6AQ5cRc7J6FNQ9xGOBDI5_G1lHsNM5J5ivbS3iSHd3c": dial tcp: lookup argo.DOMAIN_NAME on 10.100.0.10:53: no such host
 ```
