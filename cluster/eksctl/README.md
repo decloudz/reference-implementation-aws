@@ -6,13 +6,13 @@ This directory contains the configuration to create an EKS cluster with pod iden
 
 - AWS CLI configured with appropriate permissions
 - eksctl installed
-- kubectl installed
 
 ## Environment Variables
 
 Set the following environment variables before creating the cluster:
 
 ```bash
+export REPO_ROOT=$(git rev-parse --show-toplevel)
 export CLUSTER_NAME="cnoe-ref-impl"
 export REGION="us-west-2"
 export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
@@ -23,10 +23,14 @@ export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output tex
 Create the permissions boundary policy for Crossplane:
 
 ```bash
+TEMPFILE=$(mktemp)
+cat $REPO_ROOT/cluster/iam-policies/crossplane-permissions-boundry.json | envsubst > "$TEMPFILE"
+
 # Create the permissions boundary policy
+cat $REPO_ROOT/cluster/iam-policies/crossplane-permissions-boundry.json | envsubst | \                                           
 aws iam create-policy \
   --policy-name crossplane-permissions-boundary \
-  --policy-document file://bootstrap/iam-policies/crossplane-permissions-boundry.json
+  --policy-document file:///"$TEMPFILE"
 
 # Capture the policy ARN
 export CROSSPLANE_BOUNDARY_POLICY_ARN=$(aws iam get-policy \
@@ -36,9 +40,16 @@ export CROSSPLANE_BOUNDARY_POLICY_ARN=$(aws iam get-policy \
 
 ## Create Cluster 
 
+## Without Auto Mode
 ```bash
-cat bootstrap/eksctl/cluster-config.yaml | envsubst | eksctl create cluster -f -
+cat $REPO_ROOT/cluster/eksctl/cluster-config.yaml | envsubst | eksctl create cluster -f -
 ```
+
+## With Auto Mode
+```bash
+cat $REPO_ROOT/cluster/eksctl/cluster-config-auto.yaml | envsubst | eksctl create cluster -f -
+```
+
 ## AWS Resources Created
 
 The cluster creation will provision the following AWS resources:
@@ -77,6 +88,9 @@ The cluster creation will provision the following AWS resources:
 
 ## Cleanup
 
+> [!CAUTION]
+> Ensure all workloads are removed from the cluster before destroying to avoid orphaned resources.
+
 To delete the cluster and all associated resources:
 
 ```bash
@@ -96,4 +110,5 @@ This will automatically clean up:
 - EKS addons
 - Crossplane permissions boundary policy
 
-**Note**: Manual cleanup may be required for any resources created outside of eksctl or if the deletion process encounters errors.
+> [!NOTE]
+> Manual cleanup may be required for any resources created outside of eksctl or if the deletion process encounters errors.

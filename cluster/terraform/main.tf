@@ -24,7 +24,6 @@ data "template_file" "external_secret_policy" {
     AWS_ACCOUNT_ID = data.aws_caller_identity.current.account_id
   }
 }
-
 locals {
   name   = var.cluster_name
   region = var.region
@@ -33,8 +32,9 @@ locals {
   azs      = slice(data.aws_availability_zones.available.names, 0, 3)
 
   tags = {
-    Blueprint  = local.name
-    GithubRepo = "github.com/cnoe-io/reference-implementation-aws"
+    githubRepo = "github.com/cnoe-io/reference-implementation-aws"
+    env = "dev"
+    project = "cnoe"
   }
 }
 
@@ -44,16 +44,17 @@ locals {
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "~> 20.0"
+  version = "~> 20.37"
 
   cluster_name                   = local.name
   cluster_version                = "1.33"
   cluster_endpoint_public_access = true
 
+  enable_cluster_creator_admin_permissions = true
+
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
 
-  enable_cluster_creator_admin_permissions = true
 
   enable_irsa = true
 
@@ -86,10 +87,6 @@ resource "aws_iam_policy" "crossplane_boundary" {
 
   tags = local.tags
 }
-
-################################################################################
-# Pod Identity
-################################################################################
 
 ################################################################################
 # Pod Identity
@@ -182,7 +179,7 @@ module "external_secrets_pod_identity" {
 }
 
 ################################################################################
-# Supporting Resources
+# VPC
 ################################################################################
 
 module "vpc" {

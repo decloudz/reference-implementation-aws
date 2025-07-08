@@ -4,31 +4,16 @@ metadata:
   name: ${CLUSTER_NAME}
   region: ${REGION}
   version: "1.33"
+  tags:
+    githubRepo: "github.com/cnoe-io/reference-implementation-aws"
+    env: "dev"
+    project: "cnoe"
 vpc:
   cidr: "10.0.0.0/16"
   nat:
     gateway: Single
-managedNodeGroups:
-  - name: managed-ng-1
-    instanceType: m5.large
-    minSize: 3
-    maxSize: 6
-    desiredCapacity: 4
-    volumeSize: 100
-    ssh:
-      allow: false
-    labels:
-      pool: system
-addonsConfig:
-  autoApplyPodIdentityAssociations: true
-addons:
-  - name: eks-pod-identity-agent
-  - name: aws-ebs-csi-driver
-    podIdentityAssociations:
-      - namespace: kube-system
-        serviceAccountName: ebs-csi-controller-sa
-        wellKnownPolicies:
-          ebsCSIController: true
+autoModeConfig:
+  enabled: true
 iam:
   withOIDC: true
   podIdentityAssociations:
@@ -54,11 +39,7 @@ iam:
               - "secretsmanager:DescribeSecret"
               - "secretsmanager:ListSecretVersionIds"
             Resource:
-              - "arn:aws:secretsmanager:us-west-2:${AWS_ACCOUNT_ID}:secret:cnoe-reference-implemntation-aws*"
-    - namespace: kube-system
-      serviceAccountName: aws-load-balancer-controller
-      wellKnownPolicies:
-        awsLoadBalancerController: true
+              - "arn:aws:secretsmanager:us-west-2:${AWS_ACCOUNT_ID}:secret:cnoe-ref-impl/*"
     - namespace: external-dns
       serviceAccountName: external-dns
       wellKnownPolicies:
