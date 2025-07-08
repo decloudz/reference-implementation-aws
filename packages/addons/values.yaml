@@ -276,3 +276,18 @@ crossplane-compositions:
       - key: environment
         operator: In
         values: ['control-plane']
+
+
+
+strimzi-kafka:
+  enabled: true
+  chartName: strimzi-kafka-operator
+  namespace: strimzi
+  releaseName: strimzi
+  defaultVersion: "0.46.1"
+  chartRepository: "https://strimzi.io/charts"
+  selector:
+    matchExpressions:
+      - key: environment
+        operator: In
+        values: ['control-plane']
