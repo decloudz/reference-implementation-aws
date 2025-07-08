@@ -277,8 +277,6 @@ crossplane-compositions:
         operator: In
         values: ['control-plane']
 
-
-
 strimzi-kafka:
   enabled: true
   chartName: strimzi-kafka-operator
@@ -286,6 +284,97 @@ strimzi-kafka:
   releaseName: strimzi
   defaultVersion: "0.46.1"
   chartRepository: "https://strimzi.io/charts"
+  selector:
+    matchExpressions:
+      - key: environment
+        operator: In
+        values: ['control-plane']
+
+cloudnative-postgres-operator:
+  enabled: true
+  chartName: cloudnative-pg
+  namespace: cnpg-system
+  releaseName: cloudnative-pg
+  defaultVersion: "0.24.0"
+  chartRepository: "https://cloudnative-pg.github.io/charts"
+  selector:
+    matchExpressions:
+      - key: environment
+        operator: In
+        values: ['control-plane']
+
+k8ssandra-operator:
+  enabled: true
+  chartName: k8ssandra-operator
+  namespace: k8ssandra-operator
+  releaseName: k8ssandra-operator
+  defaultVersion: "1.25.0-SNAPSHOT"
+  chartRepository: "https://helm.k8ssandra.io/stable"
+  selector:
+    matchExpressions:
+      - key: environment
+        operator: In
+        values: ['control-plane']
+
+stackable-commons-operator:
+  enabled: true
+  chartName: commons-operator
+  namespace: stackable
+  releaseName: stackable
+  defaultVersion: "25.3.0"
+  chartRepository: "https://repo.stackable.tech/repository/helm-stable/"
+  selector:
+    matchExpressions:
+      - key: environment
+        operator: In
+        values: ['control-plane']
+
+stackable-hdfs-operator:
+  enabled: true
+  chartName: hdfs-operator
+  namespace: stackable
+  releaseName: stackable
+  defaultVersion: "25.3.0"
+  chartRepository: "https://repo.stackable.tech/repository/helm-stable/"
+  selector:
+    matchExpressions:
+      - key: environment
+        operator: In
+        values: ['control-plane']
+
+stackable-listener-operator:
+  enabled: true
+  chartName: listener-operator
+  namespace: stackable
+  releaseName: stackable
+  defaultVersion: "25.3.0"
+  chartRepository: "https://repo.stackable.tech/repository/helm-stable/"
+  selector:
+    matchExpressions:
+      - key: environment
+        operator: In
+        values: ['control-plane']
+
+stackable-secret-operator:
+  enabled: true
+  chartName: secret-operator
+  namespace: stackable
+  releaseName: stackable
+  defaultVersion: "25.3.0"
+  chartRepository: "https://repo.stackable.tech/repository/helm-stable/"
+  selector:
+    matchExpressions:
+      - key: environment
+        operator: In
+        values: ['control-plane']
+
+stackable-zookeeper-operator:
+  enabled: true
+  chartName: zookeeper-operator
+  namespace: stackable
+  releaseName: stackable
+  defaultVersion: "25.3.0"
+  chartRepository: "https://repo.stackable.tech/repository/helm-stable/"
   selector:
     matchExpressions:
       - key: environment
