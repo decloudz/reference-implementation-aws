@@ -1,0 +1,42 @@
+# K8ssandra Operator Configuration Values
+# This file allows customization of the K8ssandra operator deployment
+
+# Global settings
+global:
+  clusterScoped: true
+
+# Control plane settings (required for K8ssandraCluster controller)
+controlPlane: true
+
+# Resource limits for the operator
+resources:
+  limits:
+    memory: 512Mi
+    cpu: 500m
+  requests:
+    memory: 256Mi
+    cpu: 100m
+
+# Enable cert-manager integration
+certManager:
+  enabled: true
+
+# Enable proper cass-operator configuration
+cass-operator:
+  disableCertManagerCheck: false
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+
+# Node selector (uncomment to schedule on specific nodes)
+# nodeSelector:
+#   kubernetes.io/os: linux
+
+# Tolerations (uncomment to allow scheduling on tainted nodes)
+# tolerations: []
+
+# Affinity rules (uncomment to configure pod affinity)
+# affinity: {}

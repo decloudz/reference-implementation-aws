@@ -1,0 +1,37 @@
+# CloudNativePG Operator Configuration
+# Basic configuration for development/testing
+
+# Operator image configuration  
+image:
+  repository: ghcr.io/cloudnative-pg/cloudnative-pg
+  pullPolicy: IfNotPresent
+
+# Resource limits and requests
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+# Monitoring configuration
+monitoring:
+  enabled: true
+  podMonitorAdditionalLabels: {}
+
+# Service account
+serviceAccount:
+  create: true
+
+# RBAC
+rbac:
+  create: true
+
+# CRDs configuration
+crds:
+  create: true
+
+# Webhook configuration
+webhook:
+  port: 9443

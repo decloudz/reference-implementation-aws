@@ -1,0 +1,158 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: cloudnative-postgres-operator
+  title: CloudNativePG Operator
+  description: |
+    CloudNativePG operator for managing PostgreSQL clusters in Kubernetes.
+    
+    **Features:**
+    - High-availability PostgreSQL clusters with streaming replication
+    - Automated failover and switchover capabilities
+    - Built-in backup and recovery with point-in-time recovery
+    - Connection pooling with PgBouncer integration
+    - Monitoring and alerting with Prometheus metrics
+    - TLS encryption for secure communication
+    - Rolling updates with zero downtime
+  annotations:
+    backstage.io/kubernetes-id: cloudnative-postgres-operator
+    backstage.io/kubernetes-namespace: cnpg-system
+    argocd/app-name: cloudnative-postgres-operator
+    backstage.io/source-location: url:https://github.com/cloudnative-pg/cloudnative-pg
+    backstage.io/techdocs-ref: url:https://cloudnative-pg.io/documentation/
+  tags:
+    - postgresql
+    - database
+    - operator
+    - kubernetes
+    - cloudnative-pg
+    - data-infrastructure
+  links:
+    - url: https://cloudnative-pg.io/
+      title: CloudNativePG Official Site
+      icon: home
+    - url: https://cloudnative-pg.io/documentation/
+      title: Documentation
+      icon: docs
+    - url: https://github.com/cloudnative-pg/cloudnative-pg
+      title: Source Code
+      icon: github
+spec:
+  type: operator
+  lifecycle: experimental
+  owner: platform-team
+  system: data-infrastructure
+  dependsOn:
+    - resource:default/kubernetes-cluster
+  providesApis:
+    - cloudnative-postgres-api
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: cloudnative-postgres-api
+  title: CloudNativePG Kubernetes API
+  description: Kubernetes Custom Resource Definitions provided by CloudNativePG operator
+  tags:
+    - postgresql
+    - kubernetes
+    - crd
+    - api
+spec:
+  type: kubernetes-crd
+  lifecycle: experimental
+  owner: platform-team
+  system: data-infrastructure
+  definition: |
+    # CloudNativePG Custom Resource Definitions
+    
+    ## Cluster CRD
+    The main PostgreSQL cluster resource that defines a complete PostgreSQL deployment.
+    
+    ```yaml
+    apiVersion: postgresql.cnpg.io/v1
+    kind: Cluster
+    metadata:
+      name: my-postgres-cluster
+    spec:
+      instances: 3
+      postgresql:
+        parameters:
+          max_connections: "200"
+          shared_buffers: "256MB"
+      bootstrap:
+        initdb:
+          database: myapp
+          owner: myuser
+      storage:
+        size: 10Gi
+      monitoring:
+        enabled: true
+    ```
+    
+    ## Pooler CRD
+    Connection pooling resource using PgBouncer for efficient connection management.
+    
+    ```yaml
+    apiVersion: postgresql.cnpg.io/v1
+    kind: Pooler
+    metadata:
+      name: my-postgres-pooler
+    spec:
+      cluster:
+        name: my-postgres-cluster
+      instances: 2
+      type: rw
+      pgbouncer:
+        poolMode: session
+    ```
+    
+    ## Backup CRD
+    On-demand backup resource for creating point-in-time backups.
+    
+    ```yaml
+    apiVersion: postgresql.cnpg.io/v1
+    kind: Backup
+    metadata:
+      name: my-postgres-backup
+    spec:
+      cluster:
+        name: my-postgres-cluster
+    ```
+    
+    ## ScheduledBackup CRD
+    Automated backup scheduling using cron expressions.
+    
+    ```yaml
+    apiVersion: postgresql.cnpg.io/v1
+    kind: ScheduledBackup
+    metadata:
+      name: my-postgres-scheduled-backup
+    spec:
+      schedule: "0 2 * * *"
+      cluster:
+        name: my-postgres-cluster
+    ```
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: cnpg-system-namespace
+  title: CloudNativePG Operator Namespace
+  description: Kubernetes namespace containing the CloudNativePG operator
+  annotations:
+    backstage.io/kubernetes-id: cloudnative-postgres-operator
+    backstage.io/kubernetes-namespace: cnpg-system
+  tags:
+    - kubernetes
+    - namespace
+    - postgresql
+    - operator
+spec:
+  type: kubernetes-namespace
+  owner: platform-team
+  system: data-infrastructure
+  dependsOn:
+    - component:default/cloudnative-postgres-operator

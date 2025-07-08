@@ -1,0 +1,39 @@
+# Stackable Zookeeper Operator Configuration Values
+# This file allows customization of the Stackable Zookeeper operator deployment
+
+# Resource limits for the operator
+resources:
+  limits:
+    memory: 512Mi
+    cpu: 500m
+  requests:
+    memory: 128Mi
+    cpu: 100m
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+
+# Image configuration
+image:
+  pullPolicy: IfNotPresent
+
+# Logging configuration
+logging:
+  level: INFO
+
+# Monitoring
+monitoring:
+  enabled: false
+
+# Node selector (uncomment to schedule on specific nodes)
+# nodeSelector:
+#   kubernetes.io/os: linux
+
+# Tolerations (uncomment to allow scheduling on tainted nodes)
+# tolerations: []
+
+# Affinity rules (uncomment to configure pod affinity)
+# affinity: {}

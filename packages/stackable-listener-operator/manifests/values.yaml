@@ -1,0 +1,43 @@
+# Stackable Listener Operator Configuration Values
+# This file allows customization of the Stackable Listener operator deployment
+
+# Resource limits for the operator
+resources:
+  limits:
+    memory: 512Mi
+    cpu: 500m
+  requests:
+    memory: 128Mi
+    cpu: 100m
+
+# Security context (disabled for kind cluster compatibility)
+securityContext:
+  runAsNonRoot: false
+  # runAsUser: 1000
+  # runAsGroup: 1000
+
+# Image configuration
+image:
+  pullPolicy: IfNotPresent
+
+# Logging configuration
+logging:
+  level: INFO
+
+# Monitoring
+monitoring:
+  enabled: false
+
+# Disable CSI node components for kind cluster compatibility  
+nodeComponents:
+  enabled: false
+
+# Node selector (uncomment to schedule on specific nodes)
+# nodeSelector:
+#   kubernetes.io/os: linux
+
+# Tolerations (uncomment to allow scheduling on tainted nodes)
+# tolerations: []
+
+# Affinity rules (uncomment to configure pod affinity)
+# affinity: {}

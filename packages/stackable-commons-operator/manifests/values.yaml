@@ -1,0 +1,39 @@
+# Stackable Commons Operator Configuration Values
+# This file allows customization of the Stackable Commons operator deployment
+
+# Resource limits for the operator
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+
+# Image configuration
+image:
+  pullPolicy: IfNotPresent
+
+# Logging configuration
+logging:
+  level: INFO
+
+# Monitoring
+monitoring:
+  enabled: false
+
+# Node selector (uncomment to schedule on specific nodes)
+# nodeSelector:
+#   kubernetes.io/os: linux
+
+# Tolerations (uncomment to allow scheduling on tainted nodes)
+# tolerations: []
+
+# Affinity rules (uncomment to configure pod affinity)
+# affinity: {}

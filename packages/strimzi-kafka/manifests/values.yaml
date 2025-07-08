@@ -1,0 +1,56 @@
+# Strimzi Kafka Operator Configuration Values
+# This file allows customization of the Strimzi Kafka operator deployment
+
+# Operator configuration  
+fullnameOverride: strimzi-kafka-operator
+
+# Configure the operator to watch all namespaces
+watchAnyNamespace: true
+
+# Resource limits for the operator
+resources:
+  limits:
+    memory: 512Mi
+    cpu: 500m
+  requests:
+    memory: 256Mi
+    cpu: 100m
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+
+# Image configuration
+image:
+  pullPolicy: IfNotPresent
+
+# Logging configuration
+logging:
+  level: INFO
+  loggers:
+    kafka: INFO
+    zookeeper: INFO
+
+# Kafka configuration
+kafka:
+  # Default Kafka configuration
+  config:
+    auto.create.topics.enable: false
+    default.replication.factor: 3
+    min.insync.replicas: 2
+
+# Monitoring
+monitoring:
+  enabled: false
+
+# Node selector (uncomment to schedule on specific nodes)
+# nodeSelector:
+#   kubernetes.io/os: linux
+
+# Tolerations (uncomment to allow scheduling on tainted nodes)  
+# tolerations: []
+
+# Affinity rules (uncomment to configure pod affinity)
+# affinity: {}
