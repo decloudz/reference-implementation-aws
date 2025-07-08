@@ -1,0 +1,7 @@
+site_name: 'All Services Database'
+docs_dir: doc
+nav:
+  - Home: index.md
+  - idpBuilder: idpbuilder.md
+plugins:
+  - techdocs-core

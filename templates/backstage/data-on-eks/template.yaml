@@ -1,0 +1,172 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  description: Creates a EKS cluster with Spark Operator + extra enabled through Terraform
+  name: data-on-eks-spark
+  title: Data on EKS - Spark Operator
+spec:
+  output:
+    links:
+      - entityRef: ${{ steps['register'].output.entityRef }}
+        icon: catalog
+        title: Open in catalog
+  owner: guest
+  parameters:
+    - properties:
+        tfVars:
+          properties:
+            eks_cluster_version:
+              default: "1.31"
+              description: EKS Cluster version
+              type: string
+            eks_data_plane_subnet_secondary_cidr:
+              default:
+                - 100.64.0.0/17
+                - 100.64.128.0/17
+              description: Secondary CIDR blocks. 32766 IPs per Subnet per Subnet/AZ for EKS Node and Pods
+              items:
+                type: string
+              type: array
+            enable_amazon_prometheus:
+              default: true
+              description: Enable AWS Managed Prometheus service
+              type: boolean
+            enable_jupyterhub:
+              default: false
+              description: Enable Jupyter Hub
+              type: boolean
+            enable_vpc_endpoints:
+              default: false
+              description: Enable VPC Endpoints
+              type: boolean
+            enable_yunikorn:
+              default: false
+              description: Enable Apache YuniKorn Scheduler
+              type: boolean
+            kms_key_admin_roles:
+              default: []
+              description: list of role ARNs to add to the KMS policy
+              items:
+                type: string
+              type: array
+            name:
+              default: spark-operator-doeks
+              description: Name of the VPC and EKS Cluster
+              type: string
+            private_subnets:
+              default:
+                - 10.1.1.0/24
+                - 10.1.2.0/24
+              description: Private Subnets CIDRs. 254 IPs per Subnet/AZ for Private NAT + NLB + Airflow + EC2 Jumphost etc.
+              items:
+                type: string
+              type: array
+            public_subnets:
+              default:
+                - 10.1.0.0/26
+                - 10.1.0.64/26
+              description: Public Subnets CIDRs. 62 IPs per Subnet/AZ
+              items:
+                type: string
+              type: array
+            region:
+              default: us-west-2
+              description: Region
+              type: string
+            secondary_cidr_blocks:
+              default:
+                - 100.64.0.0/16
+              description: Secondary CIDR blocks to be attached to VPC
+              items:
+                type: string
+              type: array
+            spark_benchmark_ssd_desired_size:
+              default: 0
+              description: Desired size for nodegroup of c5d 12xlarge instances to run data generation for Spark benchmark
+              type: number
+            spark_benchmark_ssd_min_size:
+              default: 0
+              description: Minimum size for nodegroup of c5d 12xlarge instances to run data generation for Spark benchmark
+              type: number
+            vpc_cidr:
+              default: 10.1.0.0/16
+              description: VPC CIDR. This should be a valid private (RFC 1918) CIDR range
+              type: string
+          title: Terraform variables
+          type: object
+      title: Terraform config options
+    - properties:
+        adminRoleName:
+          default: Admin
+          description: Name of the role to give the administrative rights on the EKS cluster.
+          title: Admin Role Name
+          type: string
+        clusterName:
+          description: The cluster to run this workflow in.
+          title: Cluster to run
+          type: string
+          ui:field: KubernetesClusterPicker
+        name:
+          title: name of this entry
+          type: string
+        namespace:
+          default: data-on-eks
+          title: namespace within the kubernetes cluster to deploy this
+          type: string
+        repoUrl:
+          title: Repository Location
+          type: string
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedHosts:
+              - github.com
+      title: Configuration Options
+  steps:
+    - action: github:repo:create
+      id: create-repo
+      input:
+        repoUrl: ${{ parameters.repoUrl }}
+      name: Create Repository
+    - action: fetch:template
+      id: fetch-base
+      input:
+        url: ./data-on-eks
+        values:
+          adminRoleName: ${{parameters.adminRoleName}}
+          clusterName: ${{ parameters.clusterName }}
+          name: ${{ parameters.name }}
+          namespace: ${{ parameters.namespace }}
+          tfVars: ${{ parameters.tfVars }}
+      name: Fetch Base
+    - action: github:repo:push
+      id: init-repo
+      input:
+        defaultBranch: main
+        repoUrl: ${{ parameters.repoUrl }}
+      name: Initialize Repository
+    - action: roadiehq:utils:sleep
+      id: wait
+      input:
+        amount: 5
+      name: Waiting for the repo to be ready
+    - action: catalog:register
+      id: register
+      input:
+        catalogInfoPath: /catalog-info.yaml
+        repoContentsUrl: ${{ steps['init-repo'].output.repoContentsUrl }}
+      name: Register
+    - action: cnoe:kubernetes:apply
+      id: apply-cm
+      input:
+        clusterName: ${{ parameters.clusterName }}
+        manifestPath: cm.yaml
+        namespaced: true
+      name: Apply TF variables CM
+    - action: cnoe:kubernetes:apply
+      id: apply-workflow
+      input:
+        clusterName: ${{ parameters.clusterName }}
+        manifestPath: workflow.yaml
+        namespaced: true
+      name: Start TF workflow
+  type: service

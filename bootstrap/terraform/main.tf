@@ -1,16 +1,25 @@
 provider "aws" {
   region = var.region
+  profile = "primecloud"
 }
 
 data "aws_eks_cluster_auth" "this" {
   name = module.eks.cluster_name
 }
 
+
 data "aws_caller_identity" "current" {}
 data "aws_availability_zones" "available" {}
 
 data "template_file" "crossplane_boundary_policy" {
   template = file("${path.module}/../iam-policies/crossplane-permissions-boundry.json")
+  vars = {
+    AWS_ACCOUNT_ID = data.aws_caller_identity.current.account_id
+  }
+}
+
+data "template_file" "external_secret_policy" {
+  template = file("${path.module}/../iam-policies/external-secrets.json")
   vars = {
     AWS_ACCOUNT_ID = data.aws_caller_identity.current.account_id
   }
@@ -44,33 +53,24 @@ module "eks" {
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
 
+  enable_cluster_creator_admin_permissions = true
+
   enable_irsa = true
 
-  eks_managed_node_groups = {
-    initial = {
-      instance_types = ["m5.large"]
-      
-      min_size     = 3
-      max_size     = 6
-      desired_size = 4
-
-      disk_size = 100
-      
-      labels = {
-        pool = "system"
-      }
-    }
+  cluster_compute_config = {
+    enabled    = true
+    node_pools = ["general-purpose"]
   }
 
-  cluster_addons = {
-    coredns                = {}
-    eks-pod-identity-agent = {}
-    kube-proxy             = {}
-    vpc-cni                = {}
-    aws-ebs-csi-driver = {
-      service_account_role_arn = module.ebs_csi_pod_identity.iam_role_arn
-    }
-  }
+  # cluster_addons = {
+  #   coredns                = {}
+  #   eks-pod-identity-agent = {}
+  #   kube-proxy             = {}
+  #   vpc-cni                = {}
+  #   aws-ebs-csi-driver = {
+  #     service_account_role_arn = module.ebs_csi_pod_identity.iam_role_arn
+  #   }
+  # }
 
   tags = local.tags
 }
@@ -91,6 +91,56 @@ resource "aws_iam_policy" "crossplane_boundary" {
 # Pod Identity
 ################################################################################
 
+################################################################################
+# Pod Identity
+################################################################################
+module "aws_load_balancer_controller_pod_identity" {
+  source  = "terraform-aws-modules/eks-pod-identity/aws"
+  version = "~> 1.0"
+
+  name = "aws_load_balancer_controller"
+  attach_aws_lb_controller_policy = true
+  associations = {
+    external_secrets = {
+      cluster_name    = module.eks.cluster_name
+      namespace       = "kube-system"
+      service_account = "aws-load-balancer-controller"
+    }
+  }
+
+  tags = local.tags
+}
+module "external_dns_pod_identity" {
+  source  = "terraform-aws-modules/eks-pod-identity/aws"
+  version = "~> 1.0"
+
+  name = "external-dns"
+  attach_external_dns_policy = true
+  external_dns_hosted_zone_arns = [ "*" ]
+  associations = {
+    external_secrets = {
+      cluster_name    = module.eks.cluster_name
+      namespace       = "external-dns"
+      service_account = "external-dns"
+    }
+  }
+  tags = local.tags
+}
+module "ebs_csi_driver_pod_identity" {
+  source  = "terraform-aws-modules/eks-pod-identity/aws"
+  version = "~> 1.0"
+
+  name = "ebs-csi-driver"
+  attach_aws_ebs_csi_policy = true
+  associations = {
+    external_secrets = {
+      cluster_name    = module.eks.cluster_name
+      namespace       = "kube-system"
+      service_account = "ebs-csi-controller-sa"
+    }
+  }
+  tags = local.tags
+}
 module "crossplane_pod_identity" {
   source  = "terraform-aws-modules/eks-pod-identity/aws"
   version = "~> 1.0"
@@ -118,50 +168,13 @@ module "external_secrets_pod_identity" {
   version = "~> 1.0"
 
   name = "external-secrets"
-
-  policy_statements = [
-    {
-      actions = [
-        "secretsmanager:ListSecrets",
-        "secretsmanager:BatchGetSecretValue"
-      ]
-      resources = ["*"]
-    },
-    {
-      actions = [
-        "secretsmanager:GetResourcePolicy",
-        "secretsmanager:GetSecretValue",
-        "secretsmanager:DescribeSecret",
-        "secretsmanager:ListSecretVersionIds"
-      ]
-      resources = ["arn:aws:secretsmanager:${var.region}:${data.aws_caller_identity.current.account_id}:secret:cnoe-reference-implemntation-aws"]
-    }
-  ]
-
+  attach_custom_policy = true
+  override_policy_documents = [data.template_file.external_secret_policy.rendered]
   associations = {
     external_secrets = {
       cluster_name    = module.eks.cluster_name
       namespace       = "external-secrets"
       service_account = "external-secrets"
-    }
-  }
-
-  tags = local.tags
-}
-
-module "ebs_csi_pod_identity" {
-  source  = "terraform-aws-modules/eks-pod-identity/aws"
-  version = "~> 1.0"
-
-  name = "ebs-csi-controller"
-
-  attach_aws_ebs_csi_policy = true
-
-  associations = {
-    ebs_csi = {
-      cluster_name    = module.eks.cluster_name
-      namespace       = "kube-system"
-      service_account = "ebs-csi-controller-sa"
     }
   }
 

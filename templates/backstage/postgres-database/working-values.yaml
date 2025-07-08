@@ -1,0 +1,42 @@
+# Working PostgreSQL configuration for immediate use
+# This file has static values that will work for testing
+
+auth:
+  database: postgres
+  username: appuser
+
+global:
+  postgresql:
+    auth:
+      database: postgres
+      username: appuser
+
+primary:
+  persistence:
+    enabled: true
+    size: 10Gi
+  
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 250m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+image:
+  tag: "15"
+
+architecture: standalone
+
+metrics:
+  enabled: false
+
+backup:
+  enabled: false
+
+readReplicas:
+  replicaCount: 0
+
+volumePermissions:
+  enabled: true

@@ -1,0 +1,428 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: request-postgres-cluster
+  title: Request PostgreSQL Cluster
+  description: |
+    Request a new PostgreSQL cluster using CloudNativePG operator.
+    
+    Creates:
+    - High-availability PostgreSQL cluster with streaming replication
+    - Automated failover and switchover capabilities
+    - Built-in backup and recovery with point-in-time recovery
+    - Connection pooling with PgBouncer integration
+    - Monitoring and alerting with Prometheus metrics
+    - TLS encryption for secure communication
+  
+spec:
+  owner: platform-team
+  type: data-infrastructure
+  parameters:
+    - title: Cluster Information
+      required: [clusterName, envName]
+      properties:
+        clusterName:
+          type: string
+          description: PostgreSQL cluster name
+          pattern: '^[a-z][a-z0-9-]*[a-z0-9]$'
+          ui:help: 'Cluster name (lowercase, alphanumeric, hyphens, must start with letter)'
+        envName:
+          type: string
+          description: Environment for the PostgreSQL cluster
+          enum:
+            - dev
+            - staging
+            - prod
+          ui:help: 'Target environment for the PostgreSQL cluster'
+        namespace:
+          type: string
+          description: Kubernetes namespace for the cluster
+          default: ${{ parameters.envName }}-postgres
+          ui:help: 'Namespace where PostgreSQL cluster will be deployed'
+
+    - title: PostgreSQL Configuration
+      properties:
+        postgresqlVersion:
+          type: string
+          description: PostgreSQL version
+          default: "16"
+          enum:
+            - "14"
+            - "15"
+            - "16"
+            - "17"
+          ui:help: 'PostgreSQL major version to deploy'
+        instances:
+          type: integer
+          description: Number of PostgreSQL instances
+          default: 1
+          minimum: 1
+          maximum: 9
+          ui:help: 'Number of PostgreSQL instances (recommended: 3 for production HA)'
+        databaseName:
+          type: string
+          description: Application database name
+          default: "app"
+          pattern: '^[a-z][a-z0-9_]*[a-z0-9]$'
+          ui:help: 'Name of the application database to create'
+        databaseUser:
+          type: string
+          description: Application database user
+          default: "app"
+          pattern: '^[a-z][a-z0-9_]*[a-z0-9]$'
+          ui:help: 'Name of the application database user'
+
+    - title: Storage Configuration
+      properties:
+        storageSize:
+          type: string
+          description: Storage size per PostgreSQL instance
+          default: "10Gi"
+          enum:
+            - "5Gi"
+            - "10Gi"
+            - "20Gi"
+            - "50Gi"
+            - "100Gi"
+            - "200Gi"
+          ui:help: 'Persistent storage size for each PostgreSQL instance'
+        storageClass:
+          type: string
+          description: Storage class for persistent volumes
+          default: "standard"
+          ui:help: 'Kubernetes storage class for persistent volumes'
+
+    - title: High Availability & Backup
+      properties:
+        enableHA:
+          type: boolean
+          title: Enable High Availability
+          description: Enable streaming replication for high availability
+          default: false
+          ui:help: 'Enable HA (requires instances >= 2)'
+        primaryUpdateStrategy:
+          type: string
+          description: Primary update strategy
+          default: "unsupervised"
+          enum:
+            - "unsupervised"
+            - "supervised"
+          ui:help: 'How to handle primary updates (unsupervised = automatic)'
+        enableBackup:
+          type: boolean
+          title: Enable automated backups
+          description: Enable continuous backup with point-in-time recovery
+          default: false
+          ui:help: 'Enable automated backup to object storage'
+        backupRetentionDays:
+          type: integer
+          description: Backup retention period (days)
+          default: 30
+          minimum: 1
+          maximum: 365
+          ui:help: 'How long to retain backups'
+
+    - title: Security & Networking
+      properties:
+        enableTLS:
+          type: boolean
+          title: Enable TLS encryption
+          description: Enable TLS for secure communication
+          default: true
+          ui:help: 'Enable TLS encryption for PostgreSQL connections'
+        enableConnectionPooling:
+          type: boolean
+          title: Enable connection pooling
+          description: Enable PgBouncer for connection pooling
+          default: false
+          ui:help: 'Enable PgBouncer connection pooler'
+
+    - title: Monitoring & Performance
+      properties:
+        enableMonitoring:
+          type: boolean
+          title: Enable monitoring
+          description: Enable Prometheus metrics and monitoring
+          default: true
+          ui:help: 'Enable Prometheus metrics collection'
+        maxConnections:
+          type: integer
+          description: Maximum concurrent connections
+          default: 100
+          minimum: 50
+          maximum: 1000
+          ui:help: 'Maximum number of concurrent database connections'
+        sharedBuffers:
+          type: string
+          description: Shared buffers size
+          default: "256MB"
+          enum:
+            - "128MB"
+            - "256MB"
+            - "512MB"
+            - "1GB"
+            - "2GB"
+          ui:help: 'Amount of memory for shared buffers'
+
+    - title: Resource Configuration
+      properties:
+        cpuRequests:
+          type: string
+          description: CPU requests for PostgreSQL instances
+          default: "250m"
+          enum:
+            - "200m"
+            - "250m"
+            - "500m"
+            - "1000m"
+            - "2000m"
+          ui:help: 'CPU requests for each PostgreSQL instance'
+        memoryRequests:
+          type: string
+          description: Memory requests for PostgreSQL instances
+          default: "512Mi"
+          enum:
+            - "256Mi"
+            - "512Mi"
+            - "1Gi"
+            - "2Gi"
+            - "4Gi"
+          ui:help: 'Memory requests for each PostgreSQL instance'
+        cpuLimits:
+          type: string
+          description: CPU limits for PostgreSQL instances
+          default: "500m"
+          enum:
+            - "500m"
+            - "1000m"
+            - "2000m"
+            - "4000m"
+          ui:help: 'CPU limits for each PostgreSQL instance'
+        memoryLimits:
+          type: string
+          description: Memory limits for PostgreSQL instances
+          default: "1Gi"
+          enum:
+            - "1Gi"
+            - "2Gi"
+            - "4Gi"
+            - "8Gi"
+          ui:help: 'Memory limits for each PostgreSQL instance'
+
+    - title: Namespace Configuration
+      properties:
+        createNamespace:
+          type: boolean
+          title: Create new namespace
+          description: Create a new namespace for the cluster
+          default: false
+          ui:help: 'Enable if you want to create a new namespace'
+
+  steps:
+    # Step 1: Debug parameters
+    - id: debug-params
+      name: Debug Template Parameters
+      action: debug:log
+      input:
+        message: |
+          📋 PostgreSQL Cluster Request Parameters:
+          - Cluster Name: '${{ parameters.clusterName }}'
+          - Environment: '${{ parameters.envName }}'
+          - Namespace: '${{ parameters.namespace }}'
+          - PostgreSQL Version: '${{ parameters.postgresqlVersion }}'
+          - Instances: ${{ parameters.instances }}
+          - Database: ${{ parameters.databaseName }}
+          - Storage: ${{ parameters.storageSize }}
+          - HA Enabled: ${{ parameters.enableHA }}
+          - Backup Enabled: ${{ parameters.enableBackup }}
+
+    # Step 2: Generate PostgreSQL cluster manifests
+    - id: create-postgres-manifests
+      name: Generate PostgreSQL Cluster Manifests
+      action: fetch:template
+      input:
+        url: ./skeleton/manifests
+        targetPath: ./manifests
+        values:
+          clusterName: ${{ parameters.clusterName }}
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          createNamespace: ${{ parameters.createNamespace }}
+          postgresqlVersion: ${{ parameters.postgresqlVersion }}
+          instances: ${{ parameters.instances }}
+          databaseName: ${{ parameters.databaseName }}
+          databaseUser: ${{ parameters.databaseUser }}
+          storageSize: ${{ parameters.storageSize }}
+          storageClass: ${{ parameters.storageClass }}
+          enableHA: ${{ parameters.enableHA }}
+          primaryUpdateStrategy: ${{ parameters.primaryUpdateStrategy }}
+          enableBackup: ${{ parameters.enableBackup }}
+          backupRetentionDays: ${{ parameters.backupRetentionDays }}
+          enableTLS: ${{ parameters.enableTLS }}
+          enableConnectionPooling: ${{ parameters.enableConnectionPooling }}
+          enableMonitoring: ${{ parameters.enableMonitoring }}
+          maxConnections: ${{ parameters.maxConnections }}
+          sharedBuffers: ${{ parameters.sharedBuffers }}
+          cpuRequests: ${{ parameters.cpuRequests }}
+          memoryRequests: ${{ parameters.memoryRequests }}
+          cpuLimits: ${{ parameters.cpuLimits }}
+          memoryLimits: ${{ parameters.memoryLimits }}
+
+    # Step 3: Generate catalog information
+    - id: fetch-catalog
+      name: Generate Catalog Info
+      action: fetch:template
+      input:
+        url: ./catalog-template
+        values:
+          clusterName: ${{ parameters.clusterName }}
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          postgresqlVersion: ${{ parameters.postgresqlVersion }}
+          instances: ${{ parameters.instances }}
+          databaseName: ${{ parameters.databaseName }}
+
+    # Step 4: Create repository with PostgreSQL configuration
+    - id: publish-config
+      name: Create Repository with PostgreSQL Configuration
+      action: publish:gitea
+      input:
+        description: PostgreSQL cluster ${{ parameters.clusterName }} configuration for ${{ parameters.envName }}
+        repoUrl: cnoe.localtest.me:8443/gitea?repo=postgres-${{ parameters.clusterName }}-${{ parameters.envName }}
+        defaultBranch: main
+
+    # Step 5: Register in catalog
+    - id: register
+      name: Register Component in Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish-config'].output.repoContentsUrl }}
+        catalogInfoPath: '/catalog-info.yaml'
+        optional: true
+
+    # Step 6: Create ArgoCD Application for PostgreSQL Cluster
+    - id: create-argocd-app
+      name: Create ArgoCD Application for PostgreSQL Cluster
+      action: cnoe:create-argocd-app
+      input:
+        appName: postgres-${{ parameters.clusterName }}-${{ parameters.envName }}
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        repoUrl: https://cnoe.localtest.me:8443/gitea/giteaAdmin/postgres-${{ parameters.clusterName }}-${{ parameters.envName }}
+        path: manifests
+        targetRevision: main
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.namespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+
+    # Step 7: Wait for ArgoCD to sync
+    - id: wait-for-sync
+      name: Wait for ArgoCD Application Sync
+      action: debug:wait
+      input:
+        seconds: 30
+
+    # Step 8: Validate cluster deployment
+    - id: validate-cluster
+      name: Validate PostgreSQL Cluster Deployment
+      action: debug:log
+      input:
+        message: |
+          🎉 **PostgreSQL Cluster Deployment Initiated!**
+          
+          ## ✅ What was created:
+          
+          📁 **Repository**: postgres-${{ parameters.clusterName }}-${{ parameters.envName }}
+          🚀 **ArgoCD App**: postgres-${{ parameters.clusterName }}-${{ parameters.envName }}
+          📋 **Catalog Component**: postgres-${{ parameters.clusterName }}-${{ parameters.envName }}
+          🌍 **Environment**: ${{ parameters.envName }}
+          📦 **Namespace**: ${{ parameters.namespace }}
+          
+          ## 🔧 Cluster Configuration:
+          
+          - **Cluster Name**: ${{ parameters.clusterName }}
+          - **PostgreSQL Version**: ${{ parameters.postgresqlVersion }}
+          - **Instances**: ${{ parameters.instances }}
+          - **Database**: ${{ parameters.databaseName }}
+          - **Storage per Instance**: ${{ parameters.storageSize }}
+          - **High Availability**: ${{ parameters.enableHA }}
+          - **Backup Enabled**: ${{ parameters.enableBackup }}
+          - **TLS Encryption**: ${{ parameters.enableTLS }}
+          - **Monitoring**: ${{ parameters.enableMonitoring }}
+          
+          ## 🔄 AUTOMATED DEPLOYMENT IN PROGRESS:
+          
+          ArgoCD is automatically deploying your PostgreSQL cluster!
+          
+          ### Monitor Progress:
+          - [PostgreSQL Cluster ArgoCD App](https://cnoe.localtest.me:8443/argocd/applications/argocd/postgres-${{ parameters.clusterName }}-${{ parameters.envName }})
+          
+          ### Check Cluster Status (usually takes 3-5 minutes):
+          ```bash
+          kubectl get cluster ${{ parameters.clusterName }} -n ${{ parameters.namespace }}
+          kubectl get pods -n ${{ parameters.namespace }}
+          kubectl get secrets -n ${{ parameters.namespace }}
+          ```
+          
+          ### Access PostgreSQL Cluster:
+          - **Primary Service**: ${{ parameters.clusterName }}-rw.${{ parameters.namespace }}.svc.cluster.local:5432
+          - **Read-Only Service**: ${{ parameters.clusterName }}-ro.${{ parameters.namespace }}.svc.cluster.local:5432
+          - **Database**: ${{ parameters.databaseName }}
+          - **User**: ${{ parameters.databaseUser }}
+          - **Password Secret**: ${{ parameters.clusterName }}-app
+          
+          ## 🎯 Next Steps:
+          
+          1. **Monitor ArgoCD Application**: Check deployment progress in ArgoCD
+          2. **Wait for Cluster Ready**: Usually takes 3-5 minutes for full deployment
+          3. **Retrieve Connection Details**: Get connection string from secrets
+          4. **Connect Applications**: Use the connection details for your apps
+          
+          ## 🔐 Security Notes:
+          
+          {% if parameters.enableTLS %}- TLS encryption is enabled for secure communication{% endif %}
+          - Database credentials are stored in Kubernetes secrets
+          - Connection pooling available with PgBouncer
+          {% if parameters.enableHA %}- High availability with automatic failover{% endif %}
+          {% if parameters.enableBackup %}- Automated backups with point-in-time recovery{% endif %}
+
+  output:
+    links:
+      - title: PostgreSQL Cluster ArgoCD App
+        url: https://cnoe.localtest.me:8443/argocd/applications/argocd/postgres-${{ parameters.clusterName }}-${{ parameters.envName }}
+      - title: PostgreSQL Configuration Repository
+        url: https://cnoe.localtest.me:8443/gitea/giteaAdmin/postgres-${{ parameters.clusterName }}-${{ parameters.envName }}
+      - title: PostgreSQL Cluster Component
+        icon: catalog
+        entityRef: component:default/postgres-${{ parameters.clusterName }}-${{ parameters.envName }}
+    text:
+      - title: PostgreSQL Cluster Request Summary
+        content: |
+          Your PostgreSQL cluster has been requested!
+          
+          ## ✅ Cluster Details:
+          
+          - **Cluster**: ${{ parameters.clusterName }}
+          - **Environment**: ${{ parameters.envName }}
+          - **Namespace**: ${{ parameters.namespace }}
+          - **Instances**: ${{ parameters.instances }}
+          - **Version**: PostgreSQL ${{ parameters.postgresqlVersion }}
+          - **Database**: ${{ parameters.databaseName }}
+          
+          ## 🔄 Next Steps:
+          
+          1. **Monitor Deployment**: Check ArgoCD application progress
+          2. **Wait for Ready State**: Cluster deployment takes 3-5 minutes
+          3. **Get Connection Details**: Retrieve credentials from secrets
+          4. **Connect Applications**: Use connection string for apps
+          
+          ## 📞 Support:
+          
+          If you encounter issues, contact the platform team or check the ArgoCD application logs.

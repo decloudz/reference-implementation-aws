@@ -1,0 +1,161 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: request-loi-service-database
+  title: Request Database for LOI Service
+  description: |
+    Request a new database for the LOI (Letter of Intent) Service in a specific environment.
+    
+    Creates:
+    - New database in shared PostgreSQL cluster
+    - Database user with appropriate permissions
+    - Kubernetes secret with connection details
+    - Pre-configured for LOI service requirements
+  
+spec:
+  owner: platform-team
+  type: database-request
+  parameters:
+    - title: Environment Configuration
+      required: [envName]
+      properties:
+        envName:
+          type: string
+          description: Environment where database is needed
+          enum:
+            - dev
+            - staging
+            - prod
+          ui:help: 'Target environment for the LOI service database'
+        namespace:
+          type: string
+          description: Kubernetes namespace for the LOI service
+          default: ${{ parameters.envName }}
+          ui:help: 'Namespace where your LOI service runs (defaults to environment name)'
+
+    - title: Database Configuration (Pre-configured for LOI Service)
+      properties:
+        databaseName:
+          type: string
+          description: Database name (with environment prefix)
+          default: ${{ parameters.envName }}_loi_db
+          pattern: '^[a-z][a-z0-9_]*$'
+          ui:help: 'Database name for LOI service (e.g., dev_loi_db)'
+        dbUser:
+          type: string
+          description: Database username (with environment prefix)
+          default: ${{ parameters.envName }}_loi_service_user
+          pattern: '^[a-z][a-z0-9_]*$'
+          ui:help: 'Database user for LOI service (e.g., dev_loi_service_user)'
+        
+    - title: PostgreSQL Cluster
+      properties:
+        postgresCluster:
+          type: string
+          description: PostgreSQL cluster name
+          default: postgresql
+          ui:help: 'Name of the existing PostgreSQL cluster to create database in'
+        postgresNamespace:
+          type: string
+          description: PostgreSQL namespace
+          default: ${{ parameters.envName }}
+          ui:help: 'Namespace where PostgreSQL cluster is deployed'
+
+  steps:
+    - id: fetch-db-config
+      name: Generate Database Configuration
+      action: fetch:template
+      input:
+        url: ../database-request/skeleton
+        targetPath: ./database-config/loi-service
+        values:
+          serviceName: loi-service
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.databaseName }}
+          dbUser: ${{ parameters.dbUser }}
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+          targetRepo: loi-service-db-setup
+
+    - id: create-db-job
+      name: Create Database Initialization Job
+      action: fetch:template
+      input:
+        url: ../database-request/job-template
+        targetPath: ./manifests
+        values:
+          serviceName: loi-service
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.databaseName }}
+          dbUser: ${{ parameters.dbUser }}
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+
+    - id: publish-config
+      name: Create Repository with Database Configuration
+      action: publish:gitea
+      input:
+        description: Database configuration for LOI Service in ${{ parameters.envName }}
+        repoUrl: cnoe.localtest.me:8443/gitea?repo=loi-service-db-setup
+        defaultBranch: main
+
+    - id: create-argocd-app
+      name: Create ArgoCD Application for Database Setup
+      action: cnoe:create-argocd-app
+      input:
+        appName: loi-service-database-setup
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        repoUrl: https://cnoe.localtest.me:8443/gitea/giteaAdmin/loi-service-db-setup
+        path: manifests
+        targetRevision: main
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.postgresNamespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+
+    - id: wait-for-sync
+      name: Wait for ArgoCD Application Sync
+      action: debug:wait
+      input:
+        seconds: 15
+
+    - id: validate-db
+      name: Validate Database Creation
+      action: debug:log
+      input:
+        message: |
+          Database setup initiated for: **LOI Service**
+          
+          ## ✅ What was created:
+          
+          📁 **Repository**: loi-service-db-setup
+          🚀 **ArgoCD App**: loi-service-database-setup
+          🗄️ **Database Name**: ${{ parameters.databaseName }}
+          👤 **Database User**: ${{ parameters.dbUser }}
+          🔐 **Target Secret**: loi-service-database
+          📦 **Target Namespace**: ${{ parameters.namespace }}
+
+  output:
+    links:
+      - title: Database Setup ArgoCD App
+        url: https://cnoe.localtest.me:8443/argocd/applications/argocd/loi-service-database-setup
+      - title: Database Configuration Repository
+        url: https://cnoe.localtest.me:8443/gitea/giteaAdmin/loi-service-db-setup
+    text:
+      - title: LOI Service Database Request Summary
+        content: |
+          Your database has been requested for the **LOI Service**!
+          
+          - **Service**: LOI Service
+          - **Environment**: ${{ parameters.envName }}
+          - **Database**: ${{ parameters.databaseName }}
+          - **Secret**: loi-service-database

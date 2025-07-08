@@ -1,0 +1,188 @@
+{% if values.deploymentType == "cloudnative-operator" or values.deploymentType == "external-database" or values.deploymentType == "database-setup-only" %}
+# Database Setup Job for creating database and user
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ values.databaseName }}-setup-{{ values.envName }}
+  namespace: {{ values.namespace }}
+  labels:
+    env: {{ values.envName }}
+    database: {{ values.databaseName }}
+    deployment-type: {{ values.deploymentType }}
+spec:
+  template:
+    metadata:
+      labels:
+        env: {{ values.envName }}
+        database: {{ values.databaseName }}
+        job: database-setup
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: database-setup
+          image: postgres:16-alpine
+          env:
+            {% if values.deploymentType == "cloudnative-operator" %}
+            - name: PGHOST
+              value: "{{ values.cnpgClusterName }}-rw.{{ values.cnpgClusterNamespace }}.svc.cluster.local"
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: "postgres"
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ values.cnpgClusterName }}-app
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ values.cnpgClusterName }}-app
+                  key: password
+            {% elif values.deploymentType == "external-database" or values.deploymentType == "database-setup-only" %}
+            - name: PGHOST
+              value: "{{ values.externalHost }}"
+            - name: PGPORT
+              value: "{{ values.externalPort }}"
+            - name: PGDATABASE
+              value: "{{ values.externalDatabase }}"
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ values.databaseName }}-admin-credentials
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ values.databaseName }}-admin-credentials
+                  key: password
+            {% if values.externalSSL %}
+            - name: PGSSLMODE
+              value: "require"
+            {% endif %}
+            {% endif %}
+            - name: TARGET_DATABASE
+              value: "{{ values.databaseName }}"
+            {% if values.createDatabaseUser %}
+            - name: TARGET_USER
+              value: "{{ values.databaseUser }}"
+            - name: USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ values.secretName }}
+                  key: password
+            - name: USER_PRIVILEGES
+              value: "{{ values.userPrivileges }}"
+            {% endif %}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "🔗 Connecting to PostgreSQL..."
+              
+              # Test connection
+              psql -c "SELECT version();" || exit 1
+              
+              # Create database if it doesn't exist
+              echo "📁 Creating database: ${TARGET_DATABASE}"
+              psql -c "SELECT 1 FROM pg_database WHERE datname = '${TARGET_DATABASE}'" | grep -q 1 || \
+                psql -c "CREATE DATABASE \"${TARGET_DATABASE}\";"
+              
+              {% if values.createDatabaseUser %}
+              # Create user if it doesn't exist
+              echo "👤 Creating user: ${TARGET_USER}"
+              psql -c "SELECT 1 FROM pg_user WHERE usename = '${TARGET_USER}'" | grep -q 1 || \
+                psql -c "CREATE USER \"${TARGET_USER}\" WITH PASSWORD '${USER_PASSWORD}';"
+              
+              # Grant privileges
+              echo "🔐 Granting privileges to user: ${TARGET_USER}"
+              if [ "${USER_PRIVILEGES}" = "ALL" ]; then
+                psql -c "ALTER DATABASE \"${TARGET_DATABASE}\" OWNER TO \"${TARGET_USER}\";"
+                psql -d "${TARGET_DATABASE}" -c "GRANT ALL PRIVILEGES ON SCHEMA public TO \"${TARGET_USER}\";"
+                psql -d "${TARGET_DATABASE}" -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \"${TARGET_USER}\";"
+                psql -d "${TARGET_DATABASE}" -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO \"${TARGET_USER}\";"
+                psql -d "${TARGET_DATABASE}" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO \"${TARGET_USER}\";"
+                psql -d "${TARGET_DATABASE}" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO \"${TARGET_USER}\";"
+              else
+                psql -d "${TARGET_DATABASE}" -c "GRANT ${USER_PRIVILEGES} ON ALL TABLES IN SCHEMA public TO \"${TARGET_USER}\";"
+                psql -d "${TARGET_DATABASE}" -c "GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO \"${TARGET_USER}\";"
+              fi
+              {% endif %}
+              
+              {% if values.initScript %}
+              # Run initialization script
+              echo "🚀 Running initialization script..."
+              psql -d "${TARGET_DATABASE}" -c "{{ values.initScript }}"
+              {% endif %}
+              
+              echo "✅ Database setup completed successfully!"
+
+---
+{% if values.deploymentType == "external-database" or values.deploymentType == "database-setup-only" %}
+# Admin credentials secret (needs to be created manually)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ values.databaseName }}-admin-credentials
+  namespace: {{ values.namespace }}
+  labels:
+    env: {{ values.envName }}
+    database: {{ values.databaseName }}
+  annotations:
+    template.cnoe.io/note: "This secret must be created manually with admin credentials"
+type: Opaque
+data:
+  username: ""  # Base64 encoded admin username
+  password: ""  # Base64 encoded admin password
+{% endif %}
+{% endif %}
+
+{% if values.createSecret and (values.deploymentType == "cloudnative-operator" or values.deploymentType == "external-database" or values.deploymentType == "database-setup-only") %}
+---
+# Application database credentials secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ values.secretName }}
+  namespace: {{ values.namespace }}
+  labels:
+    env: {{ values.envName }}
+    database: {{ values.databaseName }}
+    deployment-type: {{ values.deploymentType }}
+type: Opaque
+data:
+  {% if values.deploymentType == "cloudnative-operator" %}
+  host: {{ (values.cnpgClusterName + "-rw." + values.cnpgClusterNamespace + ".svc.cluster.local") | b64encode }}
+  {% elif values.deploymentType == "external-database" or values.deploymentType == "database-setup-only" %}
+  host: {{ values.externalHost | b64encode }}
+  {% endif %}
+  port: {{ values.externalPort | string | b64encode if values.deploymentType in ["external-database", "database-setup-only"] else "5432" | b64encode }}
+  database: {{ values.databaseName | b64encode }}
+  {% if values.createDatabaseUser %}
+  username: {{ values.databaseUser | b64encode }}
+  password: {{ "changeme123" | b64encode }}  # Default password, should be changed
+  {% endif %}
+  {% if values.externalSSL and values.deploymentType in ["external-database", "database-setup-only"] %}
+  sslmode: {{ "require" | b64encode }}
+  {% endif %}
+
+---
+# Connection string secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ values.secretName }}-connection
+  namespace: {{ values.namespace }}
+  labels:
+    env: {{ values.envName }}
+    database: {{ values.databaseName }}
+    deployment-type: {{ values.deploymentType }}
+type: Opaque
+data:
+  {% if values.deploymentType == "cloudnative-operator" %}
+  connection-string: {{ ("postgresql://" + values.databaseUser + ":changeme123@" + values.cnpgClusterName + "-rw." + values.cnpgClusterNamespace + ".svc.cluster.local:5432/" + values.databaseName) | b64encode }}
+  {% elif values.deploymentType == "external-database" or values.deploymentType == "database-setup-only" %}
+  connection-string: {{ ("postgresql://" + values.databaseUser + ":changeme123@" + values.externalHost + ":" + values.externalPort|string + "/" + values.databaseName + ("?sslmode=require" if values.externalSSL else "")) | b64encode }}
+  {% endif %}
+{% endif %}

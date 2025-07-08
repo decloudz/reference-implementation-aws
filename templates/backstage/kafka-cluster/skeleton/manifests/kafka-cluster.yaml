@@ -1,0 +1,218 @@
+{% if values.createNamespace %}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${{ values.namespace }}
+  labels:
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/instance: ${{ values.clusterName }}
+    app.kubernetes.io/managed-by: backstage
+    environment: ${{ values.envName }}
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:kafka-cluster
+---
+{% endif %}
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: ${{ values.clusterName }}
+  namespace: ${{ values.namespace }}
+  labels:
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/instance: ${{ values.clusterName }}
+    app.kubernetes.io/managed-by: backstage
+    app.kubernetes.io/version: ${{ values.kafkaVersion }}
+    environment: ${{ values.envName }}
+  annotations:
+    strimzi.io/kraft: enabled
+    strimzi.io/node-pools: enabled
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:kafka-cluster
+spec:
+  kafka:
+    version: ${{ values.kafkaVersion }}
+    metadataVersion: ${{ values.metadataVersion }}
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+        {% if values.enableAuthentication %}
+        authentication:
+          type: scram-sha-512
+        {% endif %}
+      {% if values.enableTLS %}
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+        {% if values.enableAuthentication %}
+        authentication:
+          type: scram-sha-512
+        {% endif %}
+      {% endif %}
+    config:
+      offsets.topic.replication.factor: ${{ values.replicationFactor }}
+      transaction.state.log.replication.factor: ${{ values.replicationFactor }}
+      transaction.state.log.min.isr: ${{ values.minInSyncReplicas }}
+      default.replication.factor: ${{ values.replicationFactor }}
+      min.insync.replicas: ${{ values.minInSyncReplicas }}
+      inter.broker.protocol.version: "${{ values.kafkaVersion }}"
+      auto.create.topics.enable: false
+      delete.topic.enable: true
+      log.retention.hours: 168
+      num.partitions: 3
+      {% if values.enableAuthentication %}
+      allow.everyone.if.no.acl.found: false
+      authorizer.class.name: "org.apache.kafka.metadata.authorizer.StandardAuthorizer"
+      sasl.enabled.mechanisms: SCRAM-SHA-512
+      {% endif %}
+  entityOperator:
+    topicOperator:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+    userOperator:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+---
+{% if values.enableAuthentication %}
+# Create default Kafka users
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: ${{ values.clusterName }}-admin
+  namespace: ${{ values.namespace }}
+  labels:
+    strimzi.io/cluster: ${{ values.clusterName }}
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/instance: ${{ values.clusterName }}
+    app.kubernetes.io/managed-by: backstage
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: cluster
+        operation: All
+      - resource:
+          type: topic
+          name: "*"
+        operation: All
+      - resource:
+          type: group
+          name: "*"
+        operation: All
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: ${{ values.clusterName }}-user
+  namespace: ${{ values.namespace }}
+  labels:
+    strimzi.io/cluster: ${{ values.clusterName }}
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/instance: ${{ values.clusterName }}
+    app.kubernetes.io/managed-by: backstage
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: topic
+          name: "*"
+        operation: Read
+      - resource:
+          type: topic
+          name: "*"
+        operation: Write
+      - resource:
+          type: group
+          name: "*"
+        operation: Read
+{% endif %}
+---
+# KafkaNodePool for brokers
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: ${{ values.clusterName }}-broker
+  namespace: ${{ values.namespace }}
+  labels:
+    strimzi.io/cluster: ${{ values.clusterName }}
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/instance: ${{ values.clusterName }}
+    app.kubernetes.io/managed-by: backstage
+spec:
+  replicas: ${{ values.kafkaReplicas }}
+  roles:
+    - broker
+    {% if not values.enableControllers %}
+    - controller
+    {% endif %}
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: ${{ values.kafkaStorageSize }}
+        deleteClaim: false
+        {% if not values.enableControllers %}
+        kraftMetadata: shared
+        {% endif %}
+        class: ${{ values.storageClass }}
+  resources:
+    requests:
+      memory: ${{ values.brokerMemoryRequests }}
+      cpu: ${{ values.brokerCpuRequests }}
+    limits:
+      memory: ${{ values.brokerMemoryLimits }}
+      cpu: ${{ values.brokerCpuLimits }}
+{% if values.enableControllers %}
+---
+# KafkaNodePool for controllers
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: ${{ values.clusterName }}-controller
+  namespace: ${{ values.namespace }}
+  labels:
+    strimzi.io/cluster: ${{ values.clusterName }}
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/instance: ${{ values.clusterName }}
+    app.kubernetes.io/managed-by: backstage
+spec:
+  replicas: ${{ values.controllerReplicas }}
+  roles:
+    - controller
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: ${{ values.controllerStorageSize }}
+        deleteClaim: false
+        kraftMetadata: shared
+        class: ${{ values.storageClass }}
+  resources:
+    requests:
+      memory: ${{ values.controllerMemoryRequests }}
+      cpu: ${{ values.controllerCpuRequests }}
+    limits:
+      memory: ${{ values.controllerMemoryLimits }}
+      cpu: ${{ values.controllerCpuLimits }}
+{% endif %}

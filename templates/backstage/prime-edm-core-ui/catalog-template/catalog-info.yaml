@@ -1,0 +1,27 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ${{ values.chartName }}-${{ values.envName }}
+  description: ${{ values.chartName }} service deployed in ${{ values.envName }} environment
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:prime-edm-auth-service
+    backstage.io/source-location: url:https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ values.repoName }}
+  tags:
+    - ${{ values.chartName }}
+    - ${{ values.envName }}
+    - helm
+    - gitops
+  links:
+    - url: https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ values.repoName }}
+      title: GitOps Repository
+      icon: code
+    - url: https://cnoe.localtest.me:8443/argocd/applications
+      title: ArgoCD Applications
+      icon: dashboard
+spec:
+  type: service
+  lifecycle: experimental
+  owner: platform-team
+  system: prime-edm

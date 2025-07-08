@@ -1,0 +1,380 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: deploy-auth-service-helm-chart
+  title: Deploy Auth Service
+  description: |
+    Deploy Prime EDM authentication-service using Helm chart.
+    
+    Creates:
+    - Environment-specific branch with application and values.yaml
+    - ArgoCD application pointing to external Helm chart
+    - GitOps workflow for configuration changes
+  
+spec:
+  owner: platform-team
+  type: service
+  parameters:
+    - title: Repository Settings
+      required: [repoName]
+      properties:
+        repoName:
+          type: string
+          description: GitOps repository name
+          default: prime-edm-gitops
+          pattern: '^[a-z0-9][a-z0-9-]*[a-z0-9]$'
+          minLength: 3
+          maxLength: 63
+          ui:help: 'Repository name (lowercase, alphanumeric, hyphens only, 3-63 chars, must start/end with alphanumeric)'
+        createNewRepo:
+          type: boolean
+          description: Create a new repository
+          default: true
+          ui:help: 'Uncheck if repository already exists and you want to add environment configuration'
+        repoDescription:
+          type: string
+          description: Repository description
+          default: GitOps repository for auth-service deployments
+        repoVisibility:
+          type: string
+          description: Repository visibility
+          default: public
+          enum:
+            - public
+            - private
+          enumNames:
+            - Public
+            - Private
+
+    - title: Environment Configuration
+      required: [envName, namespace]
+      properties:
+        envName:
+          type: string
+          description: Environment name (e.g., dev, staging, prod)
+          pattern: '^[a-z0-9-]+$'
+          ui:help: 'Environment name (lowercase, alphanumeric, hyphens only)'
+        copyFromEnv:
+          type: string
+          description: Copy configuration from existing environment (optional)
+          ui:help: 'Leave empty to create from template, or specify existing environment name to copy its configuration'
+        namespace:
+          type: string
+          description: Kubernetes namespace
+          default: ${{ parameters.envName }}
+          ui:help: 'Kubernetes namespace where the service will be deployed'
+        imageTag:
+          type: string
+          default: latest
+          description: Container image tag
+          ui:help: 'Docker image tag to deploy'
+        
+    - title: Chart Configuration
+      properties:
+        chartRepo:
+          type: string
+          default: https://charts.acx-sandbox.net
+          description: Helm chart repository URL
+          ui:help: 'URL of the Helm chart repository'
+        chartName:
+          type: string
+          default: authentication-service
+          description: Helm chart name
+          ui:help: 'Name of the Helm chart in the repository'
+        chartVersion:
+          type: string
+          default: 1.5.0
+          description: Helm chart version
+          pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+          ui:help: 'Semantic version of the Helm chart (e.g., 1.0.1)'
+        domain:
+          type: string
+          default: ops360.localtest.me
+          description: Domain name
+          ui:help: 'Domain name for the ingress'
+
+  steps:
+    # Step 1a: Generate environment-specific values.yaml from template (if not copying)
+    - id: fetch-values
+      name: Generate Environment Values from Template
+      action: fetch:template
+      input:
+        url: ./skeleton-values
+        targetPath: ./environments/${{ parameters.envName }}/${{ parameters.chartName }}
+        values:
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          imageTag: ${{ parameters.imageTag }}
+          chartRepo: ${{ parameters.chartRepo }}
+          chartName: ${{ parameters.chartName }}
+          chartVersion: ${{ parameters.chartVersion }}
+          repoName: ${{ parameters.repoName }}
+      if: ${{ not parameters.copyFromEnv }}
+
+    # Step 1b: Fetch existing repository and copy configuration (if copying from existing env)
+    - id: fetch-and-copy
+      name: Copy Configuration from Existing Environment
+      action: fetch:plain
+      input:
+        url: https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ parameters.repoName }}/src/branch/main/environments/${{ parameters.copyFromEnv }}/${{ parameters.chartName }}
+        targetPath: ./environments/${{ parameters.envName }}/${{ parameters.chartName }}
+      if: ${{ parameters.copyFromEnv }}
+
+    # Step 2: Generate root catalog-info.yaml (only for new repos)
+    - id: fetch-catalog
+      name: Generate Catalog Info
+      action: fetch:template
+      input:
+        url: ./catalog-template
+        values:
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          imageTag: ${{ parameters.imageTag }}
+          chartRepo: ${{ parameters.chartRepo }}
+          chartName: ${{ parameters.chartName }}
+          chartVersion: ${{ parameters.chartVersion }}
+          repoName: ${{ parameters.repoName }}
+      if: ${{ parameters.createNewRepo }}
+
+    # Step 3: Generate README.md (only for new repos)  
+    - id: fetch-readme
+      name: Generate README
+      action: fetch:template
+      input:
+        url: ./skeleton
+        copyWithoutRender:
+          - catalog-info.yaml
+        values:
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          imageTag: ${{ parameters.imageTag }}
+          chartRepo: ${{ parameters.chartRepo }}
+          chartName: ${{ parameters.chartName }}
+          chartVersion: ${{ parameters.chartVersion }}
+          repoName: ${{ parameters.repoName }}
+      if: ${{ parameters.createNewRepo }}
+    
+    # Step 4: Publish to gitea git repository (conditional)
+    - id: publish
+      name: Create New GitOps Repository
+      action: publish:gitea
+      input:
+        description: ${{ parameters.repoDescription }}
+        repoUrl: cnoe.localtest.me:8443/gitea?repo=${{ parameters.repoName }}
+        defaultBranch: main
+      if: ${{ parameters.createNewRepo }}
+
+    # Step 5: Add configuration to existing repository (conditional)
+    - id: publish-to-existing
+      name: Add Configuration to Existing Repository
+      action: publish:gitea
+      input:
+        repoUrl: cnoe.localtest.me:8443/gitea?owner=giteaAdmin&repo=${{ parameters.repoName }}
+        defaultBranch: main
+        gitCommitMessage: |
+          Add ${{ parameters.chartName }} configuration for ${{ parameters.envName }} environment
+          
+          - Environment: ${{ parameters.envName }}
+          - Chart: ${{ parameters.chartName }} v${{ parameters.chartVersion }}
+          - Namespace: ${{ parameters.namespace }}
+          {% if parameters.copyFromEnv %}
+          - Copied from: ${{ parameters.copyFromEnv }} environment
+          {% endif %}
+          
+          Files added: environments/${{ parameters.envName }}/${{ parameters.chartName }}/values.yaml
+      if: ${{ not parameters.createNewRepo }}
+
+    # Step 6: Create ArgoCD Application (only for new repos)
+    - id: create-argocd-app
+      name: Create ArgoCD Application  
+      action: argocd:create-multi-source-app
+      input:
+        appName: ${{ parameters.chartName }}-${{ parameters.envName }}
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        sources: |
+          - repoURL: ${{ parameters.chartRepo }}
+            chart: ${{ parameters.chartName }}
+            targetRevision: ${{ parameters.chartVersion }}
+            helm:
+              releaseName: ${{ parameters.chartName }}-${{ parameters.envName }}
+              valueFiles:
+                - $values/environments/${{ parameters.envName }}/${{ parameters.chartName }}/values.yaml
+          - repoURL: https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ parameters.repoName }}
+            targetRevision: main
+            ref: values
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.namespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+        annotations:
+          backstage.io/managed-by-location: scaffolder
+          backstage.io/managed-by-origin-location: template:prime-edm-auth-service
+          environment: ${{ parameters.envName }}
+          chart: ${{ parameters.chartName }}
+      if: ${{ parameters.createNewRepo }}
+
+    # Step 7: Wait for repository to be ready
+    - id: wait
+      name: Wait for Repository Initialization
+      action: debug:wait
+      input:
+        seconds: 3
+      if: ${{ parameters.createNewRepo }}
+
+    # Step 8a: Debug catalog-info.yaml location
+    - id: debug-catalog
+      name: Debug Catalog Info Location
+      action: debug:log
+      input:
+        message: |
+          Attempting to register catalog at:
+          Repository: ${{ steps['publish'].output.repoContentsUrl }}
+          Catalog file: ${{ steps['publish'].output.repoContentsUrl }}/catalog-info.yaml
+          Expected entity name: ${{ parameters.chartName }}-${{ parameters.envName }}
+      if: ${{ parameters.createNewRepo }}
+
+    # Step 8b: Register in catalog (only for new repos)
+    - id: register
+      name: Register Component in Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish'].output.repoContentsUrl }}
+        catalogInfoPath: '/catalog-info.yaml'
+        optional: true
+      if: ${{ parameters.createNewRepo }}
+
+    # Step 8c: Alternative registration method
+    - id: register-alt
+      name: Alternative Catalog Registration
+      action: catalog:register
+      input:
+        catalogInfoUrl: https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ parameters.repoName }}/raw/branch/main/catalog-info.yaml
+        optional: true
+      if: ${{ parameters.createNewRepo }}
+
+    # Step 9: Validate registration (debug step)
+    - id: validate-entity
+      name: Validate Entity Registration
+      action: debug:log
+      input:
+        message: |
+          Entity registration attempted for: component:default/${{ parameters.chartName }}-${{ parameters.envName }}
+          Repository URL: ${{ steps['publish'].output.repoContentsUrl }}
+          Repository Name: ${{ parameters.repoName }}
+          Entity Name (lowercase): ${{ parameters.repoName | lower }}
+          
+          Direct Catalog Link: https://cnoe.localtest.me:8443/catalog/default/component/${{ parameters.chartName }}-${{ parameters.envName }}
+          Alternative Link: https://cnoe.localtest.me:8443/catalog/default/component/authservicegitops
+          
+          REGISTRATION STATUS:
+          Method 1: {% if steps.register.output.entityRef %}✅ ${{ steps.register.output.entityRef }}{% else %}❌ Failed{% endif %}
+          Method 2: {% if steps['register-alt'].output.entityRef %}✅ ${{ steps['register-alt'].output.entityRef }}{% else %}❌ Failed{% endif %}
+          
+          MANUAL REGISTRATION:
+          If automatic registration failed, manually add this URL to Backstage:
+          📋 Copy this URL: https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ parameters.repoName }}/raw/branch/main/catalog-info.yaml
+          
+          Steps to manually register:
+          1. Go to: https://cnoe.localtest.me:8443/catalog/import
+          2. Paste the URL above
+          3. Click "Analyze" then "Import"
+          
+          VERIFICATION STEPS:
+          1. Repository: https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ parameters.repoName }}
+          2. Catalog file: https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ parameters.repoName }}/src/branch/main/catalog-info.yaml
+          3. Raw catalog file: https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ parameters.repoName }}/raw/branch/main/catalog-info.yaml
+          4. Search catalog: https://cnoe.localtest.me:8443/catalog?filters%5Bkind%5D=component&filters%5Buser%5D=all
+          5. Direct link: https://cnoe.localtest.me:8443/catalog/default/component/${{ parameters.chartName }}-${{ parameters.envName }}
+          
+          COMMON ISSUES:
+          - Wait 30-60 seconds for indexing after manual import
+          - Check if catalog-info.yaml has valid YAML syntax
+          - Verify entity name matches: ${{ parameters.chartName }}-${{ parameters.envName }}
+          
+          The entity should appear shortly as Backstage indexes the repository.
+      if: ${{ parameters.createNewRepo }}
+
+  output:
+    links:
+      - title: Environment Values Configuration
+        url: https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ parameters.repoName }}/src/branch/main/environments/${{ parameters.envName }}/${{ parameters.chartName }}/values.yaml
+      - title: GitOps Repository
+        url: https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ parameters.repoName }}
+      - title: ArgoCD Application
+        url: https://cnoe.localtest.me:8443/argocd/applications/argocd/${{ parameters.chartName }}-${{ parameters.envName }}
+      - title: Repository (updated)
+        url: https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ parameters.repoName }}
+        if: ${{ not parameters.createNewRepo }}
+      - title: Open in Catalog
+        icon: catalog
+        entityRef: component:default/${{ parameters.chartName }}-${{ parameters.envName }}
+        if: ${{ parameters.createNewRepo }}
+    text:
+      - title: GitOps Workflow
+        content: |
+          Your ${{ parameters.chartName }} service is configured for the **${{ parameters.envName }}** environment!{% if parameters.copyFromEnv %} (copied from ${{ parameters.copyFromEnv }}){% endif %}
+          
+          ## ✅ What was created:
+          
+          📁 **Repository**: giteaAdmin/${{ parameters.repoName }}
+          📂 **Environment Path**: environments/${{ parameters.envName }}/${{ parameters.chartName }}/
+          ⚙️  **Configuration**: values.yaml
+          🚀 **ArgoCD App**: ${{ parameters.chartName }}-${{ parameters.envName }}
+          📋 **Backstage Entity**: ${{ parameters.chartName }}-${{ parameters.envName }}
+          
+          ## 🔄 Repository Structure:
+          ```
+          environments/${{ parameters.envName }}/${{ parameters.chartName }}/
+          └── values.yaml        # Environment-specific configuration
+          ```
+          
+          ## 📋 Backstage Entity Registration:
+          
+          {% if parameters.createNewRepo %}
+          The component has been registered in Backstage as: **${{ parameters.chartName }}-${{ parameters.envName }}**
+          
+          ⚠️ If you see "entity not found" warnings, this is normal! 
+          The entity will appear in the catalog within 30-60 seconds as Backstage indexes the repository.
+          {% else %}
+          The new environment configuration has been added directly to the repository.
+          ArgoCD will automatically detect and deploy the changes.
+          {% endif %}
+          
+          ## 🛠️ Making Changes:
+          
+          1. **Clone repository**: 
+             ```bash
+             git clone https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ parameters.repoName }}
+             ```
+          
+          2. **Edit environment config**: 
+             ```bash
+             cd ${{ parameters.repoName }}
+             vim environments/${{ parameters.envName }}/${{ parameters.chartName }}/values.yaml
+             ```
+          
+          3. **Commit and push**:
+             ```bash
+             git add . && git commit -m "Update ${{ parameters.envName }} config" && git push
+             ```
+          
+          4. **ArgoCD automatically syncs** the changes!
+          
+          ## 📈 Upgrading Chart Version:
+          
+          1. Edit: `environments/${{ parameters.chartName }}/${{ parameters.envName }}/application.yaml`
+          2. Change: `targetRevision` to new chart version
+          3. Commit to main branch
+          
+          ## 🔗 Quick Links:
+          
+          - [Repository](https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ parameters.repoName }})
+          - [ArgoCD App](https://cnoe.localtest.me:8443/argocd/applications/argocd/${{ parameters.chartName }}-${{ parameters.envName }})
+          - [Backstage Catalog](https://cnoe.localtest.me:8443/catalog)

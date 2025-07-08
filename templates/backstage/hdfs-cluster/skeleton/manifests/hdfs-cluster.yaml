@@ -1,0 +1,177 @@
+{% if values.createNamespace %}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${{ values.namespace }}
+  labels:
+    app.kubernetes.io/name: hdfs
+    app.kubernetes.io/instance: ${{ values.clusterName }}
+    app.kubernetes.io/managed-by: backstage
+    environment: ${{ values.envName }}
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:hdfs-cluster
+---
+{% endif %}
+apiVersion: zookeeper.stackable.tech/v1alpha1
+kind: ZookeeperCluster
+metadata:
+  name: ${{ values.clusterName }}-zk
+  namespace: ${{ values.namespace }}
+  labels:
+    app.kubernetes.io/name: zookeeper
+    app.kubernetes.io/instance: ${{ values.clusterName }}
+    app.kubernetes.io/managed-by: backstage
+    app.kubernetes.io/version: ${{ values.zookeeperVersion }}
+    environment: ${{ values.envName }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:hdfs-cluster
+spec:
+  image:
+    productVersion: ${{ values.zookeeperVersion }}
+  servers:
+    config:
+      logging:
+        enableVectorAgent: ${{ values.enableLogging }}
+      resources:
+        cpu:
+          min: 100m
+          max: 200m
+        memory:
+          limit: 512Mi
+    roleGroups:
+      default:
+        replicas: ${{ values.zookeeperReplicas }}
+        config:
+          resources:
+            cpu:
+              min: 100m
+              max: 250m
+            memory:
+              limit: 512Mi
+---
+apiVersion: zookeeper.stackable.tech/v1alpha1
+kind: ZookeeperZnode
+metadata:
+  name: ${{ values.clusterName }}-znode
+  namespace: ${{ values.namespace }}
+  labels:
+    app.kubernetes.io/name: zookeeper
+    app.kubernetes.io/instance: ${{ values.clusterName }}
+    app.kubernetes.io/managed-by: backstage
+    environment: ${{ values.envName }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:hdfs-cluster
+spec:
+  clusterRef:
+    name: ${{ values.clusterName }}-zk
+---
+apiVersion: hdfs.stackable.tech/v1alpha1
+kind: HdfsCluster
+metadata:
+  name: ${{ values.clusterName }}
+  namespace: ${{ values.namespace }}
+  labels:
+    app.kubernetes.io/name: hdfs
+    app.kubernetes.io/instance: ${{ values.clusterName }}
+    app.kubernetes.io/managed-by: backstage
+    app.kubernetes.io/version: ${{ values.hdfsVersion }}
+    environment: ${{ values.envName }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:hdfs-cluster
+spec:
+  image:
+    productVersion: ${{ values.hdfsVersion }}
+  clusterConfig:
+    zookeeperConfigMapName: ${{ values.clusterName }}-znode
+    dfsReplication: ${{ values.dfsReplication }}
+    listenerClass: cluster-internal
+  nameNodes:
+    config:
+      logging:
+        enableVectorAgent: ${{ values.enableLogging }}
+      resources:
+        cpu:
+          min: 250m
+          max: ${{ values.nameNodeCpu }}
+        memory:
+          limit: ${{ values.nameNodeMemory }}
+    roleGroups:
+      default:
+        replicas: ${{ values.nameNodeReplicas }}
+        config:
+          resources:
+            cpu:
+              min: 250m
+              max: ${{ values.nameNodeCpu }}
+            memory:
+              limit: ${{ values.nameNodeMemory }}
+  dataNodes:
+    config:
+      logging:
+        enableVectorAgent: ${{ values.enableLogging }}
+      resources:
+        cpu:
+          min: 250m
+          max: ${{ values.dataNodeCpu }}
+        memory:
+          limit: ${{ values.dataNodeMemory }}
+    roleGroups:
+      default:
+        replicas: ${{ values.dataNodeReplicas }}
+        config:
+          resources:
+            cpu:
+              min: 250m
+              max: ${{ values.dataNodeCpu }}
+            memory:
+              limit: ${{ values.dataNodeMemory }}
+          affinity:
+            podAntiAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 70
+                  podAffinityTerm:
+                    labelSelector:
+                      matchLabels:
+                        app.kubernetes.io/name: hdfs
+                        app.kubernetes.io/instance: ${{ values.clusterName }}
+                        app.kubernetes.io/component: datanode
+                    topologyKey: kubernetes.io/hostname
+        volumeClaimTemplates:
+          - metadata:
+              name: data
+            spec:
+              accessModes:
+                - ReadWriteOnce
+              storageClassName: ${{ values.storageClass }}
+              resources:
+                requests:
+                  storage: ${{ values.dataNodeStorageSize }}
+  {% if values.nameNodeReplicas > 1 %}
+  journalNodes:
+    config:
+      logging:
+        enableVectorAgent: ${{ values.enableLogging }}
+      resources:
+        cpu:
+          min: 250m
+          max: 500m
+        memory:
+          limit: 1Gi
+    roleGroups:
+      default:
+        replicas: ${{ values.journalNodeReplicas }}
+        config:
+          resources:
+            cpu:
+              min: 100m
+              max: 250m
+            memory:
+              limit: 512Mi
+  {% endif %}

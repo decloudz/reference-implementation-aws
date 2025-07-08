@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ serviceName }}-database-config
+  namespace: ${{ namespace }}
+  labels:
+    app.kubernetes.io/name: ${{ serviceName }}
+    app.kubernetes.io/component: database
+    app.kubernetes.io/managed-by: backstage
+    environment: ${{ envName }}
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:database-request
+data:
+  # Database connection information (non-sensitive)
+  database-name: "${{ databaseName }}"
+  database-user: "${{ dbUser }}"
+  postgres-cluster: "${{ postgresCluster }}"
+  postgres-namespace: "${{ postgresNamespace }}"
+  environment: "${{ envName }}"
+  service-name: "${{ serviceName }}"
+  
+  # Connection settings
+  postgres-host: "${{ postgresCluster }}-${{ envName }}.${{ postgresNamespace }}.svc.cluster.local"
+  postgres-port: "5432"
+  
+  # Database URL template (use with secret values)
+  database-url-template: "postgresql://${{ dbUser }}:PASSWORD@${{ postgresCluster }}-${{ envName }}.${{ postgresNamespace }}.svc.cluster.local:5432/${{ databaseName }}"

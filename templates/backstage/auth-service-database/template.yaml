@@ -1,0 +1,363 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: request-auth-service-database
+  title: Request Database for Authentication Service
+  description: |
+    Request a new database for the Authentication Service in a specific environment.
+    
+    Creates:
+    - New database in shared PostgreSQL cluster
+    - Database user with appropriate permissions
+    - Kubernetes secret with connection details
+    - Pre-configured for authentication service requirements
+  
+spec:
+  owner: platform-team
+  type: database-request
+  parameters:
+    - title: Environment Configuration
+      required: [envName]
+      properties:
+        envName:
+          type: string
+          description: Environment where database is needed
+          enum:
+            - dev
+            - staging
+            - prod
+          ui:help: 'Target environment for the authentication service database'
+        namespace:
+          type: string
+          description: Kubernetes namespace for the authentication service
+          default: ${{ parameters.envName }}
+          ui:help: 'Namespace where your authentication service runs (defaults to environment name)'
+
+    - title: Database Configuration (Pre-configured for Authentication Service)
+      properties:
+        databaseName:
+          type: string
+          description: Database name (with environment prefix)
+          default: ${{ parameters.envName }}_authentication_db
+          pattern: '^[a-z][a-z0-9_]*$'
+          ui:help: 'Database name for authentication service (e.g., dev_authentication_db)'
+        dbUser:
+          type: string
+          description: Database username (with environment prefix)
+          default: ${{ parameters.envName }}_auth_service_user
+          pattern: '^[a-z][a-z0-9_]*$'
+          ui:help: 'Database user for authentication service (e.g., dev_auth_service_user)'
+        
+    - title: PostgreSQL Cluster
+      properties:
+        postgresCluster:
+          type: string
+          description: PostgreSQL cluster name
+          default: postgresql
+          ui:help: 'Name of the existing PostgreSQL cluster to create database in'
+        postgresNamespace:
+          type: string
+          description: PostgreSQL namespace
+          default: ${{ parameters.envName }}
+          ui:help: 'Namespace where PostgreSQL cluster is deployed'
+
+    - title: Java Keystore Configuration
+      description: Configure Java keystore for authentication service
+      properties:
+        createKeystore:
+          type: boolean
+          description: Create Java keystore for authentication service
+          default: true
+          ui:help: 'Create a Java keystore with self-signed certificate for SSL/TLS'
+        keystorePassword:
+          type: string
+          description: Keystore password (defaults to 'password' for auth-service)
+          ui:field: Secret
+          ui:help: 'Password for the Java keystore - leave empty to use auth-service default (password)'
+        keyAlias:
+          type: string
+          default: authentication-service
+          description: Certificate alias in keystore
+          ui:help: 'Alias name for the certificate in the keystore'
+        keyPassword:
+          type: string
+          description: Private key password (defaults to '789xyz' for auth-service)
+          ui:field: Secret
+          ui:help: 'Password for the private key - leave empty to use auth-service default (789xyz)'
+        certificateCommonName:
+          type: string
+          default: ops360.localtest.me
+          description: Certificate Common Name (CN)
+          ui:help: 'Common Name for the self-signed certificate (usually the domain name)'
+        certificateValidityDays:
+          type: integer
+          default: 365
+          description: Certificate validity period in days
+          ui:help: 'How long the certificate should be valid (in days). Uses EC algorithm for auth-service compatibility.'
+
+  steps:
+    # Step 1: Generate database configuration files
+    - id: fetch-db-config
+      name: Generate Database Configuration
+      action: fetch:template
+      input:
+        url: ../database-request/skeleton
+        targetPath: ./database-config/authentication-service
+        values:
+          serviceName: authentication-service
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.databaseName }}
+          dbUser: ${{ parameters.dbUser }}
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+          createKeystore: ${{ parameters.createKeystore }}
+          keystorePassword: ${{ parameters.keystorePassword }}
+          keyAlias: ${{ parameters.keyAlias }}
+          keyPassword: ${{ parameters.keyPassword }}
+          certificateCommonName: ${{ parameters.certificateCommonName }}
+          certificateValidityDays: ${{ parameters.certificateValidityDays }}
+          targetRepo: authentication-service-db-setup
+
+    # Step 2: Create database initialization job
+    - id: create-db-job
+      name: Create Database Initialization Job
+      action: fetch:template
+      input:
+        url: ../database-request/job-template
+        targetPath: ./manifests
+        values:
+          serviceName: authentication-service
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.databaseName }}
+          dbUser: ${{ parameters.dbUser }}
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+          createKeystore: ${{ parameters.createKeystore }}
+          keystorePassword: ${{ parameters.keystorePassword }}
+          keyAlias: ${{ parameters.keyAlias }}
+          keyPassword: ${{ parameters.keyPassword }}
+          certificateCommonName: ${{ parameters.certificateCommonName }}
+          certificateValidityDays: ${{ parameters.certificateValidityDays }}
+
+    # Step 3: Generate catalog information
+    - id: fetch-catalog
+      name: Generate Catalog Info
+      action: fetch:template
+      input:
+        url: ../database-request/catalog-template
+        values:
+          serviceName: authentication-service
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.databaseName }}
+          dbUser: ${{ parameters.dbUser }}
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+          createKeystore: ${{ parameters.createKeystore }}
+          keystorePassword: ${{ parameters.keystorePassword }}
+          keyAlias: ${{ parameters.keyAlias }}
+          keyPassword: ${{ parameters.keyPassword }}
+          certificateCommonName: ${{ parameters.certificateCommonName }}
+          certificateValidityDays: ${{ parameters.certificateValidityDays }}
+          targetRepo: authentication-service-db-setup
+
+    # Step 4: Create repository with database configuration
+    - id: publish-config
+      name: Create Repository with Database Configuration
+      action: publish:gitea
+      input:
+        description: Database configuration for Authentication Service in ${{ parameters.envName }}
+        repoUrl: cnoe.localtest.me:8443/gitea?repo=authentication-service-db-setup
+        defaultBranch: main
+
+    # Step 5: Register in catalog
+    - id: register
+      name: Register Component in Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish-config'].output.repoContentsUrl }}
+        catalogInfoPath: '/catalog-info.yaml'
+        optional: true
+
+    # Step 6: Create ArgoCD Application for Database Configuration
+    - id: create-argocd-app
+      name: Create ArgoCD Application for Database Setup
+      action: cnoe:create-argocd-app
+      input:
+        appName: authentication-service-database-setup
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        repoUrl: https://cnoe.localtest.me:8443/gitea/giteaAdmin/authentication-service-db-setup
+        path: manifests
+        targetRevision: main
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.postgresNamespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+
+    # Step 7: Wait for ArgoCD to sync
+    - id: wait-for-sync
+      name: Wait for ArgoCD Application Sync
+      action: debug:wait
+      input:
+        seconds: 15
+
+    # Step 8: Validate database creation
+    - id: validate-db
+      name: Validate Database Creation
+      action: debug:log
+      input:
+        message: |
+          Database setup initiated for: **Authentication Service**
+          
+          ## ✅ What was created:
+          
+          📁 **Repository**: authentication-service-db-setup
+          🚀 **ArgoCD App**: authentication-service-database-setup
+          🗄️ **Database Name**: ${{ parameters.databaseName }}
+          👤 **Database User**: ${{ parameters.dbUser }}
+          🔐 **Target Secret**: authentication-service-secrets
+          📦 **Target Namespace**: ${{ parameters.namespace }}
+          🐘 **PostgreSQL Cluster**: ${{ parameters.postgresCluster }}
+          
+          ## 🔄 AUTOMATED SETUP IN PROGRESS:
+          
+          ArgoCD is automatically applying the database configuration!
+          
+          1. **Monitor ArgoCD Application**:
+             - Application: authentication-service-database-setup
+             - Check status at: https://cnoe.localtest.me:8443/argocd/applications/argocd/authentication-service-database-setup
+          
+          2. **Check job completion** (usually takes 1-2 minutes):
+             ```bash
+             kubectl get job database-init-job-authentication-service-${{ parameters.envName }} -n ${{ parameters.postgresNamespace }}
+             ```
+          
+          3. **Verify secret creation**:
+             ```bash
+             kubectl get secret authentication-service-secrets -n ${{ parameters.namespace }}
+             ```
+          
+          4. **Test database connection** (after job completes):
+             ```bash
+             kubectl run test-db --rm -it --image=postgres:15 -- psql $(kubectl get secret authentication-service-secrets -n ${{ parameters.namespace }} -o jsonpath='{.data.database-url}' | base64 -d)
+             ```
+          
+          ## 🔗 Connection Details:
+          
+          Your authentication service can access the database using the secret: `authentication-service-secrets`
+          
+          Available secret keys:
+          - `database-url`: PostgreSQL connection string (postgresql://user:pass@host:port/db)
+          - `jdbc-url`: JDBC connection string (jdbc:postgresql://host:port/db)
+          - `host`: PostgreSQL host
+          - `port`: PostgreSQL port  
+          - `database`: Database name
+          - `username`: Database user
+          - `password`: Database password
+          
+          {% if parameters.createKeystore %}
+          Java Keystore keys (when keystore is enabled):
+          - `keystore.jks`: Base64 encoded private keystore file (for auth-service)
+          - `public.jks`: Base64 encoded public keystore file (for other services)
+          - `public.cert`: Base64 encoded public certificate (for sharing)
+          - `keystore-password`: Password for the keystore (default: 'password')
+          - `key-alias`: Certificate alias in keystore
+          - `key-password`: Private key password (default: '789xyz')
+          - `certificate-cn`: Certificate Common Name
+          
+          Note: Uses EC (Elliptic Curve) algorithm as required by auth-service.
+          {% endif %}
+          
+          ## 📖 Usage in Authentication Service Deployment:
+          
+          ```yaml
+          spec:
+            containers:
+            - name: authentication-service
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: authentication-service-secrets
+                      key: database-url
+                # Or individual components:
+                - name: DB_HOST
+                  valueFrom:
+                    secretKeyRef:
+                      name: authentication-service-secrets
+                      key: host
+                - name: DB_DATABASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: authentication-service-secrets
+                      key: database
+          ```
+
+  output:
+    links:
+      - title: Database Setup ArgoCD App
+        url: https://cnoe.localtest.me:8443/argocd/applications/argocd/authentication-service-database-setup
+      - title: Database Configuration Repository
+        url: https://cnoe.localtest.me:8443/gitea/giteaAdmin/authentication-service-db-setup
+      - title: Database Component in Catalog
+        icon: catalog
+        entityRef: component:default/authentication-service-database-${{ parameters.envName }}
+      - title: Database Secret Resource
+        icon: catalog
+        entityRef: resource:default/authentication-service-database-secret-${{ parameters.envName }}
+      - title: PostgreSQL Cluster Resource
+        icon: catalog
+        entityRef: resource:default/postgresql-${{ parameters.envName }}
+      - title: PostgreSQL Cluster ArgoCD App
+        url: https://cnoe.localtest.me:8443/argocd/applications/argocd/${{ parameters.postgresCluster }}-${{ parameters.envName }}
+    text:
+      - title: Authentication Service Database Request Summary
+        content: |
+          Your database has been requested for the **Authentication Service**!
+          
+          ## ✅ Database Details:
+          
+          - **Service**: Authentication Service
+          - **Environment**: ${{ parameters.envName }}
+          - **Database**: ${{ parameters.databaseName }}
+          - **User**: ${{ parameters.dbUser }}
+          - **Secret**: authentication-service-secrets
+          - **Namespace**: ${{ parameters.namespace }}
+          
+          ## 🔄 Next Steps:
+          
+          1. **Monitor ArgoCD Application**: Check the database setup progress in ArgoCD
+          2. **Wait for Job Completion**: Usually takes 1-2 minutes for database creation
+          3. **Verify Secret Creation**: Ensure the database secret was created
+          4. **Update Your Authentication Service**: Use the generated secret in your deployment
+          
+          ## 🔐 Security Notes:
+          
+          - Database password is auto-generated and stored securely
+          - User has limited permissions (no superuser access)
+          - Connection is only allowed from within the cluster
+          - Secret is automatically created in your service namespace
+          
+          ## 🛠️ Troubleshooting:
+          
+          If the database creation fails:
+          1. **Check the initialization job logs**:
+             ```bash
+             kubectl logs job/database-init-job-authentication-service-${{ parameters.envName }} -n ${{ parameters.postgresNamespace }}
+             ```
+          
+          2. **Verify PostgreSQL cluster is healthy**:
+             ```bash
+             kubectl get pods -n ${{ parameters.postgresNamespace }} | grep postgresql
+             ```
+          
+          3. **Contact platform team if issues persist**

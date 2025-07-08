@@ -1,0 +1,122 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: postgres-{{ values.clusterName }}-{{ values.envName }}
+  title: PostgreSQL Cluster - {{ values.clusterName }}
+  description: |
+    PostgreSQL cluster {{ values.clusterName }} in {{ values.envName }} environment.
+    
+    **Configuration:**
+    - PostgreSQL Version: {{ values.postgresqlVersion }}
+    - Instances: {{ values.instances }}
+    - Database: {{ values.databaseName }}
+    - Storage: {{ values.storageSize }} per instance
+    - Namespace: {{ values.namespace }}
+  annotations:
+    backstage.io/kubernetes-id: postgres-{{ values.clusterName }}-{{ values.envName }}
+    backstage.io/kubernetes-namespace: {{ values.namespace }}
+    argocd/app-name: postgres-{{ values.clusterName }}-{{ values.envName }}
+    backstage.io/source-location: url:https://cnoe.localtest.me:8443/gitea/giteaAdmin/postgres-{{ values.clusterName }}-{{ values.envName }}
+  tags:
+    - postgresql
+    - database
+    - cloudnative-pg
+    - {{ values.envName }}
+  links:
+    - url: https://cnoe.localtest.me:8443/argocd/applications/argocd/postgres-{{ values.clusterName }}-{{ values.envName }}
+      title: ArgoCD Application
+      icon: deployment
+    - url: https://cnoe.localtest.me:8443/gitea/giteaAdmin/postgres-{{ values.clusterName }}-{{ values.envName }}
+      title: Configuration Repository
+      icon: github
+spec:
+  type: database
+  lifecycle: experimental
+  owner: platform-team
+  system: data-infrastructure
+  providesApis:
+    - postgres-{{ values.clusterName }}-{{ values.envName }}-api
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: postgres-{{ values.clusterName }}-{{ values.envName }}-api
+  title: PostgreSQL API - {{ values.clusterName }}
+  description: PostgreSQL database API for {{ values.clusterName }} cluster
+  tags:
+    - postgresql
+    - database
+    - sql
+    - {{ values.envName }}
+spec:
+  type: database
+  lifecycle: experimental
+  owner: platform-team
+  system: data-infrastructure
+  definition: |
+    # PostgreSQL Cluster: {{ values.clusterName }}
+    
+    ## Connection Details
+    
+    ### Primary (Read/Write) Connection
+    ```
+    Host: {{ values.clusterName }}-rw.{{ values.namespace }}.svc.cluster.local
+    Port: 5432
+    Database: {{ values.databaseName }}
+    User: {{ values.databaseUser }}
+    Password: <from secret {{ values.clusterName }}-app>
+    ```
+    
+    ### Read-Only Connection
+    ```
+    Host: {{ values.clusterName }}-ro.{{ values.namespace }}.svc.cluster.local
+    Port: 5432
+    Database: {{ values.databaseName }}
+    User: {{ values.databaseUser }}
+    Password: <from secret {{ values.clusterName }}-app>
+    ```
+    
+    ## Configuration
+    - **PostgreSQL Version**: {{ values.postgresqlVersion }}
+    - **Instances**: {{ values.instances }}
+    - **High Availability**: {{ "Enabled" if values.instances > 1 else "Disabled" }}
+    - **Storage per Instance**: {{ values.storageSize }}
+    - **Namespace**: {{ values.namespace }}
+    
+    ## Connection Example (Environment Variables)
+    ```bash
+    POSTGRES_HOST={{ values.clusterName }}-rw.{{ values.namespace }}.svc.cluster.local
+    POSTGRES_PORT=5432
+    POSTGRES_DB={{ values.databaseName }}
+    POSTGRES_USER={{ values.databaseUser }}
+    POSTGRES_PASSWORD=<from-secret>
+    ```
+    
+    ## Health Check
+    ```sql
+    SELECT version();
+    SELECT pg_is_in_recovery();
+    ```
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: postgres-{{ values.clusterName }}-{{ values.envName }}-cluster
+  title: PostgreSQL Cluster Resource - {{ values.clusterName }}
+  description: PostgreSQL cluster resource in {{ values.envName }} environment
+  annotations:
+    backstage.io/kubernetes-id: postgres-{{ values.clusterName }}-{{ values.envName }}
+    backstage.io/kubernetes-namespace: {{ values.namespace }}
+  tags:
+    - postgresql
+    - cluster
+    - cloudnative-pg
+    - {{ values.envName }}
+spec:
+  type: kubernetes-cluster
+  owner: platform-team
+  system: data-infrastructure
+  dependsOn:
+    - component:default/postgres-{{ values.clusterName }}-{{ values.envName }}

@@ -1,0 +1,141 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: hdfs-${{ values.clusterName }}-${{ values.envName }}
+  title: HDFS Cluster - ${{ values.clusterName | title }} (${{ values.envName | title }})
+  description: Apache Hadoop HDFS cluster for distributed file storage in ${{ values.envName }} environment
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:hdfs-cluster
+    argocd/app-name: hdfs-${{ values.clusterName }}-${{ values.envName }}
+    github.com/project-slug: giteaAdmin/hdfs-${{ values.clusterName }}-${{ values.envName }}
+    kubernetes.io/cluster-name: ${{ values.clusterName }}
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - hdfs
+    - hadoop
+    - distributed-storage
+    - data-infrastructure
+    - ${{ values.envName }}
+  links:
+    - url: https://cnoe.localtest.me:8443/argocd/applications/argocd/hdfs-${{ values.clusterName }}-${{ values.envName }}
+      title: ArgoCD Application
+      icon: deployment
+    - url: https://cnoe.localtest.me:8443/gitea/giteaAdmin/hdfs-${{ values.clusterName }}-${{ values.envName }}
+      title: Configuration Repository
+      icon: github
+spec:
+  type: data-infrastructure
+  lifecycle: production
+  owner: platform-team
+  system: data-infrastructure-${{ values.envName }}
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: hdfs-${{ values.clusterName }}-namenode-${{ values.envName }}
+  title: HDFS NameNode (${{ values.clusterName | title }} - ${{ values.envName | title }})
+  description: HDFS NameNode service for metadata management
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    kubernetes.io/service-name: ${{ values.clusterName }}-namenode-default
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - hdfs
+    - namenode
+    - metadata
+    - ${{ values.envName }}
+spec:
+  type: k8s-service
+  lifecycle: production
+  owner: platform-team
+  system: data-infrastructure-${{ values.envName }}
+  dependsOn:
+    - component:default/hdfs-${{ values.clusterName }}-${{ values.envName }}
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: hdfs-${{ values.clusterName }}-datanode-${{ values.envName }}
+  title: HDFS DataNodes (${{ values.clusterName | title }} - ${{ values.envName | title }})
+  description: HDFS DataNode statefulset for data storage
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    kubernetes.io/statefulset-name: ${{ values.clusterName }}-datanode-default
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - hdfs
+    - datanode
+    - storage
+    - statefulset
+    - ${{ values.envName }}
+spec:
+  type: k8s-statefulset
+  lifecycle: production
+  owner: platform-team
+  system: data-infrastructure-${{ values.envName }}
+  dependsOn:
+    - component:default/hdfs-${{ values.clusterName }}-${{ values.envName }}
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: hdfs-${{ values.clusterName }}-journalnode-${{ values.envName }}
+  title: HDFS JournalNodes (${{ values.clusterName | title }} - ${{ values.envName | title }})
+  description: HDFS JournalNode statefulset for HA shared storage
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    kubernetes.io/statefulset-name: ${{ values.clusterName }}-journalnode-default
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - hdfs
+    - journalnode
+    - ha
+    - shared-storage
+    - ${{ values.envName }}
+spec:
+  type: k8s-statefulset
+  lifecycle: production
+  owner: platform-team
+  system: data-infrastructure-${{ values.envName }}
+  dependsOn:
+    - component:default/hdfs-${{ values.clusterName }}-${{ values.envName }}
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: zookeeper-${{ values.clusterName }}-${{ values.envName }}
+  title: ZooKeeper Ensemble (${{ values.clusterName | title }} - ${{ values.envName | title }})
+  description: ZooKeeper ensemble for HDFS coordination and failover
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    kubernetes.io/statefulset-name: ${{ values.clusterName }}-zk-server-default
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - zookeeper
+    - coordination
+    - failover
+    - statefulset
+    - ${{ values.envName }}
+spec:
+  type: k8s-statefulset
+  lifecycle: production
+  owner: platform-team
+  system: data-infrastructure-${{ values.envName }}
+  dependsOn:
+    - component:default/hdfs-${{ values.clusterName }}-${{ values.envName }}
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: data-infrastructure-${{ values.envName }}
+  title: Data Infrastructure (${{ values.envName | title }})
+  description: Data infrastructure components for ${{ values.envName }} environment
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+  tags:
+    - data-infrastructure
+    - platform
+    - ${{ values.envName }}
+spec:
+  owner: platform-team

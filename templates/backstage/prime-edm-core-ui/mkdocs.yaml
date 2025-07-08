@@ -1,0 +1,6 @@
+site_name: 'Prime EDM Auth Service'
+nav:
+  - Home: index.md
+  - Prime EDM Auth Service: prime-edm-auth-service.md
+plugins:
+  - techdocs-core

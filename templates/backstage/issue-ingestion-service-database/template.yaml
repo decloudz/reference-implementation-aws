@@ -1,0 +1,158 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: request-issue-ingestion-service-database
+  title: Request Database for Issue Ingestion Service
+  description: |
+    Request a new database for the Issue Ingestion Service in a specific environment.
+    
+    Creates:
+    - New database in shared PostgreSQL cluster
+    - Database user with appropriate permissions
+    - Kubernetes secret with connection details
+    - Pre-configured for issue ingestion service requirements
+  
+spec:
+  owner: platform-team
+  type: database-request
+  parameters:
+    - title: Environment Configuration
+      required: [envName]
+      properties:
+        envName:
+          type: string
+          description: Environment where database is needed
+          enum:
+            - dev
+            - staging
+            - prod
+          ui:help: 'Target environment for the Issue Ingestion service database'
+        namespace:
+          type: string
+          description: Kubernetes namespace for the Issue Ingestion service
+          default: ${{ parameters.envName }}
+          ui:help: 'Namespace where your Issue Ingestion service runs (defaults to environment name)'
+
+    - title: Database Configuration (Pre-configured for Issue Ingestion Service)
+      properties:
+        databaseName:
+          type: string
+          description: Database name (with environment prefix)
+          default: ${{ parameters.envName }}_issue_ingestion_db
+          pattern: '^[a-z][a-z0-9_]*$'
+          ui:help: 'Database name for Issue Ingestion service (e.g., dev_issue_ingestion_db)'
+        dbUser:
+          type: string
+          description: Database username (with environment prefix)
+          default: ${{ parameters.envName }}_issue_ingestion_user
+          pattern: '^[a-z][a-z0-9_]*$'
+          ui:help: 'Database user for Issue Ingestion service (e.g., dev_issue_ingestion_user)'
+        
+    - title: PostgreSQL Cluster
+      properties:
+        postgresCluster:
+          type: string
+          description: PostgreSQL cluster name
+          default: postgresql
+          ui:help: 'Name of the existing PostgreSQL cluster to create database in'
+        postgresNamespace:
+          type: string
+          description: PostgreSQL namespace
+          default: ${{ parameters.envName }}
+          ui:help: 'Namespace where PostgreSQL cluster is deployed'
+
+  steps:
+    - id: fetch-db-config
+      name: Generate Database Configuration
+      action: fetch:template
+      input:
+        url: ../database-request/skeleton
+        targetPath: ./database-config/issue-ingestion-service
+        values:
+          serviceName: issue-ingestion-service
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.databaseName }}
+          dbUser: ${{ parameters.dbUser }}
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+          targetRepo: issue-ingestion-service-db-setup
+
+    - id: create-db-job
+      name: Create Database Initialization Job
+      action: fetch:template
+      input:
+        url: ../database-request/job-template
+        targetPath: ./manifests
+        values:
+          serviceName: issue-ingestion-service
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.databaseName }}
+          dbUser: ${{ parameters.dbUser }}
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+
+    - id: publish-config
+      name: Create Repository with Database Configuration
+      action: publish:gitea
+      input:
+        description: Database configuration for Issue Ingestion Service in ${{ parameters.envName }}
+        repoUrl: cnoe.localtest.me:8443/gitea?repo=issue-ingestion-service-db-setup
+        defaultBranch: main
+
+    - id: create-argocd-app
+      name: Create ArgoCD Application for Database Setup
+      action: cnoe:create-argocd-app
+      input:
+        appName: issue-ingestion-service-database-setup
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        repoUrl: https://cnoe.localtest.me:8443/gitea/giteaAdmin/issue-ingestion-service-db-setup
+        path: manifests
+        targetRevision: main
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.postgresNamespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+
+    - id: wait-for-sync
+      name: Wait for ArgoCD Application Sync
+      action: debug:wait
+      input:
+        seconds: 15
+
+    - id: validate-db
+      name: Validate Database Creation
+      action: debug:log
+      input:
+        message: |
+          Database setup initiated for: **Issue Ingestion Service**
+          
+          ## ✅ What was created:
+          
+          📁 **Repository**: issue-ingestion-service-db-setup
+          🚀 **ArgoCD App**: issue-ingestion-service-database-setup
+          🗄️ **Database Name**: ${{ parameters.databaseName }}
+          🔐 **Target Secret**: issue-ingestion-service-database
+
+  output:
+    links:
+      - title: Database Setup ArgoCD App
+        url: https://cnoe.localtest.me:8443/argocd/applications/argocd/issue-ingestion-service-database-setup
+      - title: Database Configuration Repository
+        url: https://cnoe.localtest.me:8443/gitea/giteaAdmin/issue-ingestion-service-db-setup
+    text:
+      - title: Issue Ingestion Service Database Request Summary
+        content: |
+          Your database has been requested for the **Issue Ingestion Service**!
+          
+          - **Environment**: ${{ parameters.envName }}
+          - **Database**: ${{ parameters.databaseName }}
+          - **Secret**: issue-ingestion-service-database

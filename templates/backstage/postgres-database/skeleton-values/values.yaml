@@ -1,0 +1,43 @@
+# PostgreSQL configuration for ${{ values.envName }} environment
+# Database: ${{ values.databaseName }}
+# Storage: ${{ values.storageSize }}
+
+auth:
+  database: ${{ values.databaseName }}
+  username: appuser
+
+global:
+  postgresql:
+    auth:
+      database: ${{ values.databaseName }}
+      username: appuser
+
+primary:
+  persistence:
+    enabled: true
+    size: ${{ values.storageSize }}
+  
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 250m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+image:
+  tag: ${{ values.postgresVersion }}
+
+architecture: standalone
+
+metrics:
+  enabled: false
+
+backup:
+  enabled: false
+
+readReplicas:
+  replicaCount: 0
+
+volumePermissions:
+  enabled: true

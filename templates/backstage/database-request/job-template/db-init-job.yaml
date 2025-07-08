@@ -1,0 +1,506 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: database-init-job-${{ values.serviceName }}-${{ values.envName }}
+  namespace: ${{ values.postgresNamespace }}
+  labels:
+    app.kubernetes.io/name: database-init
+    app.kubernetes.io/component: job
+    app.kubernetes.io/managed-by: backstage
+    app.kubernetes.io/service: ${{ values.serviceName }}
+    app.kubernetes.io/environment: ${{ values.envName }}
+    service: ${{ values.serviceName }}
+    environment: ${{ values.envName }}
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:database-request
+spec:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: database-init
+        service: ${{ values.serviceName }}
+        environment: ${{ values.envName }}
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: db-init
+        image: openjdk:11-jdk-slim
+        env:
+          # PostgreSQL admin connection
+          - name: PGHOST
+            value: "${{ values.postgresCluster }}-${{ values.envName }}"
+          - name: PGPORT
+            value: "5432"
+          - name: PGUSER
+            value: "postgres"
+          - name: PGPASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: ${{ values.postgresCluster }}-${{ values.envName }}
+                key: postgres-password
+          
+          # New database details
+          - name: DB_NAME
+            value: "${{ values.databaseName }}"
+          - name: DB_USER
+            value: "${{ values.dbUser }}"
+          # DB_PASSWORD will be generated in the script if not provided
+          
+          # Target secret details
+          - name: TARGET_SECRET_NAME
+            value: "${{ values.serviceName }}-secrets"
+          - name: TARGET_NAMESPACE
+            value: "${{ values.namespace }}"
+          - name: SERVICE_NAME
+            value: "${{ values.serviceName }}"
+          
+          # Keystore configuration
+          - name: CREATE_KEYSTORE
+            value: "${{ values.createKeystore | default('false') }}"
+          - name: KEYSTORE_PASSWORD
+            value: "${{ values.keystorePassword | default('password') }}"
+          - name: KEY_ALIAS
+            value: "${{ values.keyAlias | default('app-service') }}"
+          - name: KEY_PASSWORD
+            value: "${{ values.keyPassword | default('789xyz') }}"
+          - name: CERT_COMMON_NAME
+            value: "${{ values.certificateCommonName | default('localhost') }}"
+          - name: CERT_VALIDITY_DAYS
+            value: "${{ values.certificateValidityDays | default('365') }}"
+          
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          
+          echo "🚀 Starting database and keystore initialization for service: $SERVICE_NAME"
+          echo "📋 Database: $DB_NAME, User: $DB_USER"
+          echo "🔐 Keystore creation: $CREATE_KEYSTORE"
+          
+          # Debug: Print all keystore-related environment variables
+          echo "🔍 Debug: Keystore environment variables:"
+          echo "  CREATE_KEYSTORE=$CREATE_KEYSTORE"
+          echo "  KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+          echo "  KEY_ALIAS=$KEY_ALIAS"
+          echo "  KEY_PASSWORD=$KEY_PASSWORD"
+          echo "  CERT_COMMON_NAME=$CERT_COMMON_NAME"
+          echo "  CERT_VALIDITY_DAYS=$CERT_VALIDITY_DAYS"
+          
+          # Install required packages
+          apt-get update && apt-get install -y postgresql-client openssl curl
+          
+          # Download and install kubectl
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          mv kubectl /usr/local/bin/
+          
+          # Check if secret already exists and use existing password
+          if kubectl get secret $TARGET_SECRET_NAME -n $TARGET_NAMESPACE >/dev/null 2>&1; then
+            echo "🔍 Secret $TARGET_SECRET_NAME already exists, using existing password"
+            EXISTING_PASSWORD=$(kubectl get secret $TARGET_SECRET_NAME -n $TARGET_NAMESPACE -o jsonpath='{.data.password}' | base64 -d)
+            if [ -n "$EXISTING_PASSWORD" ]; then
+              DB_PASSWORD="$EXISTING_PASSWORD"
+              echo "✅ Using existing password from secret"
+            fi
+          fi
+          
+          # Generate password if not provided and no existing secret
+          if [ -z "$DB_PASSWORD" ]; then
+            DB_PASSWORD=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-25)
+            echo "✅ Generated new password for user $DB_USER"
+          fi
+          
+          # Wait for PostgreSQL to be ready
+          echo "⏳ Waiting for PostgreSQL to be ready..."
+          until pg_isready -h $PGHOST -p $PGPORT -U $PGUSER; do
+            echo "PostgreSQL is not ready yet, waiting..."
+            sleep 2
+          done
+          echo "✅ PostgreSQL is ready"
+          
+          # Check if database exists
+          DB_EXISTS=$(psql -h $PGHOST -p $PGPORT -U $PGUSER -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'")
+          
+          if [ "$DB_EXISTS" = "1" ]; then
+            echo "ℹ️  Database $DB_NAME already exists"
+          else
+            echo "📝 Creating database $DB_NAME..."
+            psql -h $PGHOST -p $PGPORT -U $PGUSER -c "CREATE DATABASE \"$DB_NAME\";"
+            echo "✅ Database $DB_NAME created"
+          fi
+          
+          # Check if user exists
+          USER_EXISTS=$(psql -h $PGHOST -p $PGPORT -U $PGUSER -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'")
+          
+          if [ "$USER_EXISTS" = "1" ]; then
+            echo "ℹ️  User $DB_USER already exists, updating password..."
+            psql -h $PGHOST -p $PGPORT -U $PGUSER -c "ALTER USER \"$DB_USER\" WITH PASSWORD '$DB_PASSWORD';"
+          else
+            echo "👤 Creating user $DB_USER..."
+            psql -h $PGHOST -p $PGPORT -U $PGUSER -c "CREATE USER \"$DB_USER\" WITH PASSWORD '$DB_PASSWORD';"
+            echo "✅ User $DB_USER created"
+          fi
+          
+          # Grant permissions
+          echo "🔐 Granting permissions to $DB_USER on database $DB_NAME..."
+          psql -h $PGHOST -p $PGPORT -U $PGUSER -c "GRANT ALL PRIVILEGES ON DATABASE \"$DB_NAME\" TO \"$DB_USER\";"
+          
+          # Connect to the database and grant schema permissions
+          psql -h $PGHOST -p $PGPORT -U $PGUSER -d "$DB_NAME" -c "
+            GRANT ALL ON SCHEMA public TO \"$DB_USER\";
+            GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \"$DB_USER\";
+            GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO \"$DB_USER\";
+            ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO \"$DB_USER\";
+            ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO \"$DB_USER\";
+          "
+          echo "✅ Permissions granted"
+          
+          # Create connection strings
+          DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@$PGHOST:$PGPORT/$DB_NAME"
+          JDBC_URL="jdbc:postgresql://$PGHOST:$PGPORT/$DB_NAME"
+          
+          # Store connection details in a file that the init container can read
+          echo "🔑 Storing connection details for secret creation..."
+          mkdir -p /shared
+          echo -n "$PGHOST" > /shared/host
+          echo -n "$PGPORT" > /shared/port
+          echo -n "$DB_NAME" > /shared/database
+          echo -n "$DB_USER" > /shared/username
+          echo -n "$DB_PASSWORD" > /shared/password
+          echo -n "$DATABASE_URL" > /shared/database-url
+          echo -n "$JDBC_URL" > /shared/jdbc-url
+          
+          # Test connection
+          echo "🧪 Testing database connection..."
+          PGPASSWORD=$DB_PASSWORD psql -h $PGHOST -p $PGPORT -U $DB_USER -d $DB_NAME -c "SELECT version();" > /dev/null
+          echo "✅ Database connection test successful"
+          
+          # Create Java keystore if requested
+          if [ "$CREATE_KEYSTORE" = "true" ]; then
+            echo "🔐 Creating Java keystore..."
+            
+            # Check if keystore already exists in secret
+            EXISTING_KEYSTORE="false"
+            if kubectl get secret $TARGET_SECRET_NAME -n $TARGET_NAMESPACE >/dev/null 2>&1; then
+              if kubectl get secret $TARGET_SECRET_NAME -n $TARGET_NAMESPACE -o jsonpath='{.data.keystore\.jks}' >/dev/null 2>&1; then
+                echo "🔍 Keystore already exists in secret, checking if recreation is needed"
+                EXISTING_KEYSTORE="true"
+              fi
+            fi
+            
+            # Check for existing keystore passwords if secret exists
+            if [ "$EXISTING_KEYSTORE" = "true" ]; then
+              EXISTING_KS_PASSWORD=$(kubectl get secret $TARGET_SECRET_NAME -n $TARGET_NAMESPACE -o jsonpath='{.data.keystore-password}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+              EXISTING_KEY_PASSWORD=$(kubectl get secret $TARGET_SECRET_NAME -n $TARGET_NAMESPACE -o jsonpath='{.data.key-password}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+              
+              if [ -n "$EXISTING_KS_PASSWORD" ]; then
+                KEYSTORE_PASSWORD="$EXISTING_KS_PASSWORD"
+                echo "✅ Using existing keystore password from secret"
+              fi
+              
+              if [ -n "$EXISTING_KEY_PASSWORD" ]; then
+                KEY_PASSWORD="$EXISTING_KEY_PASSWORD"
+                echo "✅ Using existing key password from secret"
+              fi
+            fi
+            
+            # Generate keystore password if not provided or empty (default for auth-service is 'password')
+            if [ -z "$KEYSTORE_PASSWORD" ] || [ "$KEYSTORE_PASSWORD" = "" ]; then
+              KEYSTORE_PASSWORD="password"
+              echo "✅ Using default keystore password for auth-service"
+            fi
+            
+            # Use auth-service default key password if not provided or empty
+            if [ -z "$KEY_PASSWORD" ] || [ "$KEY_PASSWORD" = "" ]; then
+              KEY_PASSWORD="789xyz"
+              echo "✅ Using default key password for auth-service"
+            fi
+            
+            # Skip keystore creation if it exists and passwords haven't changed
+            RECREATE_KEYSTORE="true"
+            if [ "$EXISTING_KEYSTORE" = "true" ]; then
+              echo "🔍 Keystore exists, checking if recreation is needed..."
+              # Always recreate for now to ensure consistency
+              # In the future, could add password comparison logic here
+              echo "🔄 Recreating keystore to ensure consistency"
+            fi
+            
+            # Create keystore directory
+            mkdir -p /shared/keystore
+            
+            # Generate self-signed certificate and keystore (using EC algorithm for auth-service)
+            # Use JKS format with auth-service specific passwords
+            keytool -genkeypair \
+              -alias "$KEY_ALIAS" \
+              -keyalg EC \
+              -keysize 256 \
+              -validity "$CERT_VALIDITY_DAYS" \
+              -keystore /shared/keystore/keystore.jks \
+              -storetype JKS \
+              -keypass "$KEY_PASSWORD" \
+              -storepass "$KEYSTORE_PASSWORD" \
+              -dname "CN=$CERT_COMMON_NAME,OU=IT Department,O=Organization,L=City,S=State,C=US" \
+              -noprompt
+              
+            # Verify keystore was created correctly
+            echo "🔍 Verifying keystore creation:"
+            keytool -list -keystore /shared/keystore/keystore.jks -storepass "$KEYSTORE_PASSWORD" -v || echo "❌ Keystore verification failed"
+            
+            # Store keystore details
+            echo -n "$KEYSTORE_PASSWORD" > /shared/keystore-password
+            echo -n "$KEY_ALIAS" > /shared/key-alias
+            echo -n "$KEY_PASSWORD" > /shared/key-password
+            echo -n "$CERT_COMMON_NAME" > /shared/cert-common-name
+            
+            # Export public key for other services
+            keytool -export \
+              -alias "$KEY_ALIAS" \
+              -keystore /shared/keystore/keystore.jks \
+              -storepass "$KEYSTORE_PASSWORD" \
+              -rfc \
+              -file /shared/keystore/public.cert
+            
+            # Create public keystore for other services
+            keytool -import \
+              -alias "$KEY_ALIAS" \
+              -file /shared/keystore/public.cert \
+              -keystore /shared/keystore/public.jks \
+              -storepass "$KEYSTORE_PASSWORD" \
+              -noprompt
+            
+            # Copy keystore files for secret creation
+            cp /shared/keystore/keystore.jks /shared/keystore.jks
+            cp /shared/keystore/public.jks /shared/public.jks
+            cp /shared/keystore/public.cert /shared/public.cert
+            
+            # Create base64 encoded keystores for secret
+            base64 -w 0 /shared/keystore/keystore.jks > /shared/keystore-base64
+            base64 -w 0 /shared/keystore/public.jks > /shared/public-keystore-base64
+            base64 -w 0 /shared/keystore/public.cert > /shared/public-cert-base64
+            
+            echo "✅ Java keystore created successfully"
+            echo "   Algorithm: EC (Elliptic Curve)"
+            echo "   Alias: $KEY_ALIAS"
+            echo "   Common Name: $CERT_COMMON_NAME"
+            echo "   Validity: $CERT_VALIDITY_DAYS days"
+            echo "   Keystore Password: $KEYSTORE_PASSWORD"
+            echo "   Key Password: $KEY_PASSWORD"
+            echo "   Files created: keystore.jks, public.jks, public.cert"
+            
+            # Debug: Show what will be stored in secret
+            echo "🔍 Debug: Secret values that will be created:"
+            echo "   keystore-password value: $(cat /shared/keystore-password)"
+            echo "   key-password value: $(cat /shared/key-password)"
+            echo "   key-alias value: $(cat /shared/key-alias)"
+            
+            # Debug: Verify files were created
+            echo "🔍 Debug: Keystore files created:"
+            ls -la /shared/keystore* || echo "No keystore files found"
+            echo "🔍 Debug: Shared directory contents:"
+            ls -la /shared/ || echo "No shared directory"
+          else
+            echo "ℹ️ Skipping keystore creation (CREATE_KEYSTORE=false)"
+          fi
+          
+          echo "🎉 Database and keystore initialization completed successfully!"
+          echo "📋 Summary:"
+          echo "   Service: $SERVICE_NAME"
+          echo "   Database: $DB_NAME"
+          echo "   User: $DB_USER"
+          echo "   Keystore: $([ "$CREATE_KEYSTORE" = "true" ] && echo "Created" || echo "Skipped")"
+          echo "   Secret: $TARGET_SECRET_NAME (will be created in namespace $TARGET_NAMESPACE)"
+          echo "   Connection: postgresql://$DB_USER:***@$PGHOST:$PGPORT/$DB_NAME"
+          
+          # Signal completion to secret-creator container
+          echo "initialization-complete" > /shared/initialization-complete
+          echo "🚦 Signaled completion to secret-creator container"
+        
+        volumeMounts:
+        - name: shared-data
+          mountPath: /shared
+      
+      - name: secret-creator
+        image: bitnami/kubectl:latest
+        env:
+          - name: TARGET_SECRET_NAME
+            value: "${{ values.serviceName }}-secrets"
+          - name: TARGET_NAMESPACE
+            value: "${{ values.namespace }}"
+          - name: SERVICE_NAME
+            value: "${{ values.serviceName }}"
+          - name: ENV_NAME
+            value: "${{ values.envName }}"
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          
+          echo "⏳ Waiting for complete initialization (database + keystore)..."
+          while [ ! -f /shared/initialization-complete ]; do
+            echo "Waiting for db-init container to complete all initialization..."
+            sleep 3
+          done
+          
+          echo "✅ All initialization completed"
+          
+          # Debug: List all files in shared volume
+          echo "🔍 Debug: Files in /shared directory:"
+          ls -la /shared/ || echo "No /shared directory found"
+          
+          # Check if keystore was requested
+          KEYSTORE_REQUESTED="false"
+          if [ -f /shared/keystore-base64 ]; then
+            KEYSTORE_REQUESTED="true"
+            echo "🔐 Keystore detected, will include in secret"
+            echo "📋 Keystore files found:"
+            ls -la /shared/keystore* || echo "No keystore files"
+          else
+            echo "⚠️ No keystore detected - /shared/keystore-base64 not found"
+          fi
+          
+          echo "🔑 Creating Kubernetes secret $TARGET_SECRET_NAME in namespace $TARGET_NAMESPACE..."
+          
+          # Read connection details
+          HOST=$(cat /shared/host)
+          PORT=$(cat /shared/port)
+          DATABASE=$(cat /shared/database)
+          USERNAME=$(cat /shared/username)
+          PASSWORD=$(cat /shared/password)
+          DATABASE_URL=$(cat /shared/database-url)
+          JDBC_URL=$(cat /shared/jdbc-url)
+          
+          # Create secret with database credentials
+          SECRET_ARGS="--namespace=$TARGET_NAMESPACE \
+            --from-literal=host=$HOST \
+            --from-literal=port=$PORT \
+            --from-literal=database=$DATABASE \
+            --from-literal=username=$USERNAME \
+            --from-literal=password=$PASSWORD \
+            --from-literal=database-url=$DATABASE_URL"
+          
+          # Create or update the secret with database credentials
+          echo "🔑 Creating/updating secret $TARGET_SECRET_NAME..."
+          kubectl create secret generic $TARGET_SECRET_NAME \
+            --namespace=$TARGET_NAMESPACE \
+            --from-literal=host="$HOST" \
+            --from-literal=port="$PORT" \
+            --from-literal=database="$DATABASE" \
+            --from-literal=username="$USERNAME" \
+            --from-literal=password="$PASSWORD" \
+            --from-literal=database-url="$DATABASE_URL" \
+            --from-literal=jdbc-url="$JDBC_URL" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          
+          # Add keystore data if it exists
+          if [ "$KEYSTORE_REQUESTED" = "true" ]; then
+            KEYSTORE_PASSWORD_VAL=$(cat /shared/keystore-password)
+            KEY_ALIAS_VAL=$(cat /shared/key-alias)
+            KEY_PASSWORD_VAL=$(cat /shared/key-password)
+            CERT_CN_VAL=$(cat /shared/cert-common-name)
+            
+            echo "🔐 Adding keystore data to secret"
+            
+            # Add keystore metadata and files
+            kubectl patch secret $TARGET_SECRET_NAME \
+              --namespace=$TARGET_NAMESPACE \
+              --patch="{
+                \"data\": {
+                  \"keystore-password\": \"$(echo -n $KEYSTORE_PASSWORD_VAL | base64 -w 0)\",
+                  \"key-alias\": \"$(echo -n $KEY_ALIAS_VAL | base64 -w 0)\",
+                  \"key-password\": \"$(echo -n $KEY_PASSWORD_VAL | base64 -w 0)\",
+                  \"certificate-cn\": \"$(echo -n $CERT_CN_VAL | base64 -w 0)\",
+                  \"keystore.jks\": \"$(cat /shared/keystore-base64)\",
+                  \"public.jks\": \"$(cat /shared/public-keystore-base64)\",
+                  \"public.cert\": \"$(cat /shared/public-cert-base64)\"
+                }
+              }"
+          fi
+          
+          # Add labels and annotations
+          kubectl label secret $TARGET_SECRET_NAME \
+            --namespace=$TARGET_NAMESPACE \
+            app.kubernetes.io/name=$SERVICE_NAME \
+            app.kubernetes.io/component=database \
+            app.kubernetes.io/managed-by=backstage \
+            environment=$ENV_NAME \
+            --overwrite
+          
+          kubectl annotate secret $TARGET_SECRET_NAME \
+            --namespace=$TARGET_NAMESPACE \
+            backstage.io/managed-by-location=scaffolder \
+            backstage.io/managed-by-origin-location=template:database-request \
+            --overwrite
+          
+          # Log what was created
+          if [ "$KEYSTORE_REQUESTED" = "true" ]; then
+            echo "✅ Secret $TARGET_SECRET_NAME created with database credentials and Java keystore in namespace $TARGET_NAMESPACE"
+            echo "📋 Secret contents: host, port, database, username, password, database-url, jdbc-url, keystore-password, key-alias, key-password, certificate-cn, keystore.jks, public.jks, public.cert"
+          else
+            echo "✅ Secret $TARGET_SECRET_NAME created with database credentials in namespace $TARGET_NAMESPACE"
+            echo "📋 Secret contents: host, port, database, username, password, database-url, jdbc-url"
+          fi
+        
+        volumeMounts:
+        - name: shared-data
+          mountPath: /shared
+      
+      volumes:
+      - name: shared-data
+        emptyDir: {}
+      
+      # Service account with permissions to create secrets
+      serviceAccountName: database-init-sa-${{ values.serviceName }}-${{ values.envName }}
+      
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: database-init-sa-${{ values.serviceName }}-${{ values.envName }}
+  namespace: ${{ values.postgresNamespace }}
+  labels:
+    app.kubernetes.io/name: database-init
+    app.kubernetes.io/managed-by: backstage
+    app.kubernetes.io/service: ${{ values.serviceName }}
+    app.kubernetes.io/environment: ${{ values.envName }}
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: database-init-role-${{ values.serviceName }}-${{ values.envName }}
+  labels:
+    app.kubernetes.io/name: database-init
+    app.kubernetes.io/managed-by: backstage
+    app.kubernetes.io/service: ${{ values.serviceName }}
+    app.kubernetes.io/environment: ${{ values.envName }}
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["create", "update", "patch", "get"]
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: database-init-binding-${{ values.serviceName }}-${{ values.envName }}
+  labels:
+    app.kubernetes.io/name: database-init
+    app.kubernetes.io/managed-by: backstage
+    app.kubernetes.io/service: ${{ values.serviceName }}
+    app.kubernetes.io/environment: ${{ values.envName }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: database-init-role-${{ values.serviceName }}-${{ values.envName }}
+subjects:
+- kind: ServiceAccount
+  name: database-init-sa-${{ values.serviceName }}-${{ values.envName }}
+  namespace: ${{ values.postgresNamespace }}

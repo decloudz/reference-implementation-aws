@@ -1,0 +1,377 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: create-postgres-database-flexible
+  title: Create PostgreSQL Database (Flexible)
+  description: |
+    Create PostgreSQL databases with flexible deployment options.
+    
+    **Deployment Types:**
+    - **Bitnami PostgreSQL**: Traditional Helm chart deployment
+    - **CloudNativePG Operator**: Cloud-native PostgreSQL clusters
+    - **External Database**: Connect to existing PostgreSQL (RDS, etc.)
+    - **Database Setup**: Create databases and users on existing PostgreSQL
+    
+    **Features:**
+    - Multi-deployment type support
+    - Database initialization and user management
+    - Connection configuration management
+    - GitOps workflow integration
+  
+spec:
+  owner: platform-team
+  type: database
+  parameters:
+    - title: Deployment Configuration
+      required: [deploymentType, databaseName, envName]
+      properties:
+        deploymentType:
+          type: string
+          description: PostgreSQL deployment type
+          enum:
+            - bitnami-helm
+            - cloudnative-operator
+            - external-database
+            - database-setup-only
+          enumNames:
+            - "Bitnami PostgreSQL (Helm Chart)"
+            - "CloudNativePG Operator Cluster"
+            - "External PostgreSQL (RDS/Managed)"
+            - "Database Setup Only (existing PostgreSQL)"
+          ui:help: 'Choose how PostgreSQL will be deployed or managed'
+        databaseName:
+          type: string
+          description: Database name to create
+          pattern: '^[a-z][a-z0-9_]*[a-z0-9]$'
+          ui:help: 'Database name (lowercase, alphanumeric, underscores)'
+        envName:
+          type: string
+          description: Environment name
+          enum:
+            - dev
+            - staging
+            - prod
+          ui:help: 'Target environment for the database'
+        namespace:
+          type: string
+          description: Kubernetes namespace
+          default: ${{ parameters.envName }}-db
+          ui:help: 'Namespace where database resources will be deployed'
+
+    - title: Bitnami PostgreSQL Configuration
+      description: Configuration for Bitnami Helm chart deployment
+      dependencies:
+        deploymentType:
+          oneOf:
+            - const: bitnami-helm
+      properties:
+        bitnamiPostgresVersion:
+          type: string
+          description: PostgreSQL version for Bitnami chart
+          default: "16"
+          enum:
+            - "14"
+            - "15"
+            - "16"
+          ui:help: 'PostgreSQL version for Bitnami deployment'
+        bitnamiStorageSize:
+          type: string
+          description: Storage size for Bitnami PostgreSQL
+          default: "10Gi"
+          enum:
+            - "5Gi"
+            - "10Gi"
+            - "20Gi"
+            - "50Gi"
+          ui:help: 'Persistent storage size for Bitnami PostgreSQL'
+        bitnamiArchitecture:
+          type: string
+          description: PostgreSQL architecture
+          default: "standalone"
+          enum:
+            - "standalone"
+            - "replication"
+          enumNames:
+            - "Standalone (single instance)"
+            - "Primary-Replica (HA)"
+          ui:help: 'Database architecture for Bitnami deployment'
+
+    - title: CloudNativePG Configuration
+      description: Configuration for CloudNativePG operator cluster
+      dependencies:
+        deploymentType:
+          oneOf:
+            - const: cloudnative-operator
+      properties:
+        cnpgClusterName:
+          type: string
+          description: Name of existing CloudNativePG cluster
+          pattern: '^[a-z][a-z0-9-]*[a-z0-9]$'
+          ui:help: 'Name of the CloudNativePG cluster to use (must exist)'
+        cnpgClusterNamespace:
+          type: string
+          description: Namespace of CloudNativePG cluster
+          default: ${{ parameters.envName }}-postgres
+          ui:help: 'Namespace where CloudNativePG cluster is deployed'
+
+    - title: External Database Configuration
+      description: Configuration for external PostgreSQL connections
+      dependencies:
+        deploymentType:
+          oneOf:
+            - const: external-database
+            - const: database-setup-only
+      properties:
+        externalHost:
+          type: string
+          description: PostgreSQL host address
+          ui:help: 'PostgreSQL server hostname or IP address'
+        externalPort:
+          type: integer
+          description: PostgreSQL port
+          default: 5432
+          ui:help: 'PostgreSQL server port (usually 5432)'
+        externalDatabase:
+          type: string
+          description: Existing database name (for connections)
+          default: postgres
+          ui:help: 'Database name to connect to (usually postgres or template1)'
+        externalSSL:
+          type: boolean
+          title: Enable SSL connection
+          description: Use SSL for database connections
+          default: true
+          ui:help: 'Enable SSL/TLS for secure connections'
+
+    - title: Database User Configuration
+      properties:
+        createDatabaseUser:
+          type: boolean
+          title: Create application database user
+          description: Create a dedicated user for the database
+          default: true
+          ui:help: 'Create a new user with access to the database'
+        databaseUser:
+          type: string
+          description: Database username
+          default: ${{ parameters.databaseName }}_user
+          pattern: '^[a-z][a-z0-9_]*[a-z0-9]$'
+          ui:help: 'Username for database access'
+        userPrivileges:
+          type: string
+          description: User privileges on the database
+          default: "ALL"
+          enum:
+            - "ALL"
+            - "SELECT,INSERT,UPDATE,DELETE"
+            - "SELECT"
+          enumNames:
+            - "All privileges (owner)"
+            - "Read/Write access"
+            - "Read-only access"
+          ui:help: 'Privileges to grant to the user'
+
+    - title: Advanced Configuration
+      properties:
+        initScript:
+          type: string
+          description: Database initialization SQL script
+          ui:widget: textarea
+          ui:help: 'Optional SQL script to run after database creation'
+        createSecret:
+          type: boolean
+          title: Create Kubernetes secret
+          description: Create a secret with connection details
+          default: true
+          ui:help: 'Create Kubernetes secret with database credentials'
+        secretName:
+          type: string
+          description: Kubernetes secret name
+          default: ${{ parameters.databaseName }}-db-credentials
+          pattern: '^[a-z][a-z0-9-]*[a-z0-9]$'
+          ui:help: 'Name for the Kubernetes secret'
+
+    - title: Repository Configuration
+      properties:
+        repoName:
+          type: string
+          description: GitOps repository name
+          default: ${{ parameters.databaseName }}-${{ parameters.envName }}-database
+          pattern: '^[a-z0-9][a-z0-9-]*[a-z0-9]$'
+          ui:help: 'Repository name for GitOps configuration'
+
+  steps:
+    # Step 1: Debug parameters
+    - id: debug-params
+      name: Debug Template Parameters
+      action: debug:log
+      input:
+        message: |
+          📋 PostgreSQL Database Request Parameters:
+          - Deployment Type: '${{ parameters.deploymentType }}'
+          - Database Name: '${{ parameters.databaseName }}'
+          - Environment: '${{ parameters.envName }}'
+          - Namespace: '${{ parameters.namespace }}'
+          - Create User: ${{ parameters.createDatabaseUser }}
+          - Database User: '${{ parameters.databaseUser }}'
+
+    # Step 2: Generate database manifests based on deployment type
+    - id: create-database-manifests
+      name: Generate Database Manifests
+      action: fetch:template
+      input:
+        url: ./skeleton/manifests
+        targetPath: ./manifests
+        values:
+          deploymentType: ${{ parameters.deploymentType }}
+          databaseName: ${{ parameters.databaseName }}
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          # Bitnami specific
+          bitnamiPostgresVersion: ${{ parameters.bitnamiPostgresVersion }}
+          bitnamiStorageSize: ${{ parameters.bitnamiStorageSize }}
+          bitnamiArchitecture: ${{ parameters.bitnamiArchitecture }}
+          # CloudNativePG specific
+          cnpgClusterName: ${{ parameters.cnpgClusterName }}
+          cnpgClusterNamespace: ${{ parameters.cnpgClusterNamespace }}
+          # External database specific
+          externalHost: ${{ parameters.externalHost }}
+          externalPort: ${{ parameters.externalPort }}
+          externalDatabase: ${{ parameters.externalDatabase }}
+          externalSSL: ${{ parameters.externalSSL }}
+          # User configuration
+          createDatabaseUser: ${{ parameters.createDatabaseUser }}
+          databaseUser: ${{ parameters.databaseUser }}
+          userPrivileges: ${{ parameters.userPrivileges }}
+          initScript: ${{ parameters.initScript }}
+          createSecret: ${{ parameters.createSecret }}
+          secretName: ${{ parameters.secretName }}
+
+    # Step 3: Generate catalog information
+    - id: fetch-catalog
+      name: Generate Catalog Info
+      action: fetch:template
+      input:
+        url: ./catalog-template
+        values:
+          deploymentType: ${{ parameters.deploymentType }}
+          databaseName: ${{ parameters.databaseName }}
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          repoName: ${{ parameters.repoName }}
+
+    # Step 4: Create repository with database configuration
+    - id: publish-config
+      name: Create Repository with Database Configuration
+      action: publish:gitea
+      input:
+        description: PostgreSQL database ${{ parameters.databaseName }} configuration for ${{ parameters.envName }}
+        repoUrl: cnoe.localtest.me:8443/gitea?repo=${{ parameters.repoName }}
+        defaultBranch: main
+
+    # Step 5: Register in catalog
+    - id: register
+      name: Register Component in Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish-config'].output.repoContentsUrl }}
+        catalogInfoPath: '/catalog-info.yaml'
+        optional: true
+
+    # Step 6: Create ArgoCD Application
+    - id: create-argocd-app
+      name: Create ArgoCD Application for Database
+      action: cnoe:create-argocd-app
+      input:
+        appName: ${{ parameters.repoName }}
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        repoUrl: https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ parameters.repoName }}
+        path: manifests
+        targetRevision: main
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.namespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+
+    # Step 7: Validate deployment
+    - id: validate-deployment
+      name: Validate Database Deployment
+      action: debug:log
+      input:
+        message: |
+          🎉 **PostgreSQL Database Deployment Initiated!**
+          
+          ## ✅ What was created:
+          
+          📁 **Repository**: ${{ parameters.repoName }}
+          🚀 **ArgoCD App**: ${{ parameters.repoName }}
+          📋 **Catalog Component**: ${{ parameters.databaseName }}-${{ parameters.envName }}
+          🌍 **Environment**: ${{ parameters.envName }}
+          📦 **Namespace**: ${{ parameters.namespace }}
+          
+          ## 🔧 Database Configuration:
+          
+          - **Deployment Type**: ${{ parameters.deploymentType }}
+          - **Database Name**: ${{ parameters.databaseName }}
+          - **Database User**: ${{ parameters.databaseUser }}
+          - **Environment**: ${{ parameters.envName }}
+          {% if parameters.deploymentType == "bitnami-helm" %}- **PostgreSQL Version**: ${{ parameters.bitnamiPostgresVersion }}
+          - **Storage**: ${{ parameters.bitnamiStorageSize }}
+          - **Architecture**: ${{ parameters.bitnamiArchitecture }}{% endif %}
+          {% if parameters.deploymentType == "cloudnative-operator" %}- **Cluster Name**: ${{ parameters.cnpgClusterName }}
+          - **Cluster Namespace**: ${{ parameters.cnpgClusterNamespace }}{% endif %}
+          {% if parameters.deploymentType == "external-database" or parameters.deploymentType == "database-setup-only" %}- **Host**: ${{ parameters.externalHost }}
+          - **Port**: ${{ parameters.externalPort }}
+          - **SSL Enabled**: ${{ parameters.externalSSL }}{% endif %}
+          
+          ## 🔄 AUTOMATED DEPLOYMENT IN PROGRESS:
+          
+          ArgoCD is automatically deploying your database!
+          
+          ### Monitor Progress:
+          - [Database ArgoCD App](https://cnoe.localtest.me:8443/argocd/applications/argocd/${{ parameters.repoName }})
+          
+          ### Connection Details:
+          {% if parameters.createSecret %}Database credentials will be available in secret: `${{ parameters.secretName }}`{% endif %}
+          
+          ## 🎯 Next Steps:
+          
+          1. **Monitor ArgoCD Application**: Check deployment progress
+          2. **Verify Database Creation**: Confirm database and user creation
+          3. **Update Application Config**: Use connection details in your apps
+          4. **Test Connectivity**: Verify database access from applications
+
+  output:
+    links:
+      - title: Database ArgoCD App
+        url: https://cnoe.localtest.me:8443/argocd/applications/argocd/${{ parameters.repoName }}
+      - title: Database Configuration Repository
+        url: https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ parameters.repoName }}
+      - title: Database Component
+        icon: catalog
+        entityRef: component:default/${{ parameters.databaseName }}-${{ parameters.envName }}
+    text:
+      - title: Database Request Summary
+        content: |
+          Your PostgreSQL database has been requested!
+          
+          ## ✅ Database Details:
+          
+          - **Database**: ${{ parameters.databaseName }}
+          - **Environment**: ${{ parameters.envName }}
+          - **Deployment**: ${{ parameters.deploymentType }}
+          - **Namespace**: ${{ parameters.namespace }}
+          
+          ## 🔄 Next Steps:
+          
+          1. **Monitor Deployment**: Check ArgoCD application progress
+          2. **Wait for Ready State**: Database deployment varies by type
+          3. **Get Connection Details**: Use the generated secret
+          4. **Connect Applications**: Update your app configurations

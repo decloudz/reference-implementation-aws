@@ -1,0 +1,120 @@
+{% if values.deploymentType == "bitnami-helm" %}
+# Bitnami PostgreSQL Helm Chart Values
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ values.databaseName }}-postgresql-values
+  namespace: {{ values.namespace }}
+  labels:
+    env: {{ values.envName }}
+    database: {{ values.databaseName }}
+    deployment-type: bitnami-helm
+data:
+  values.yaml: |
+    # PostgreSQL configuration for {{ values.envName }} environment
+    # Database: {{ values.databaseName }}
+    
+    auth:
+      database: {{ values.databaseName }}
+      {% if values.createDatabaseUser %}username: {{ values.databaseUser }}{% endif %}
+    
+    global:
+      postgresql:
+        auth:
+          database: {{ values.databaseName }}
+          {% if values.createDatabaseUser %}username: {{ values.databaseUser }}{% endif %}
+    
+    primary:
+      persistence:
+        enabled: true
+        size: {{ values.bitnamiStorageSize }}
+      
+      resources:
+        requests:
+          memory: 256Mi
+          cpu: 250m
+        limits:
+          memory: 512Mi
+          cpu: 500m
+      
+      {% if values.initScript %}
+      initdb:
+        scripts:
+          init.sql: |
+            {{ values.initScript | indent(12) }}
+      {% endif %}
+    
+    image:
+      tag: {{ values.bitnamiPostgresVersion }}
+    
+    architecture: {{ values.bitnamiArchitecture }}
+    
+    {% if values.bitnamiArchitecture == "replication" %}
+    readReplicas:
+      replicaCount: 1
+      resources:
+        requests:
+          memory: 256Mi
+          cpu: 200m
+        limits:
+          memory: 512Mi
+          cpu: 400m
+    {% endif %}
+    
+    metrics:
+      enabled: true
+      serviceMonitor:
+        enabled: true
+    
+    backup:
+      enabled: false
+    
+    volumePermissions:
+      enabled: true
+
+---
+# ArgoCD Application for Bitnami PostgreSQL
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ values.databaseName }}-postgresql-{{ values.envName }}
+  namespace: argocd
+  labels:
+    env: {{ values.envName }}
+    database: {{ values.databaseName }}
+    deployment-type: bitnami-helm
+spec:
+  destination:
+    namespace: {{ values.namespace }}
+    server: "https://kubernetes.default.svc"
+  sources:
+    - repoURL: 'https://charts.bitnami.com/bitnami'
+      targetRevision: 15.5.35
+      chart: postgresql
+      helm:
+        releaseName: {{ values.databaseName }}-postgresql
+        valueFiles:
+          - $values/values.yaml
+    - repoURL: cnoe://{{ values.repoName }}/manifests
+      targetRevision: HEAD
+      ref: values
+      path: bitnami-values
+  project: default
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+
+---
+# Bitnami Values Directory Structure
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ values.databaseName }}-bitnami-values
+  namespace: {{ values.namespace }}
+data:
+  values.yaml: |
+    {{ values.databaseName }}-postgresql-values
+{% endif %}

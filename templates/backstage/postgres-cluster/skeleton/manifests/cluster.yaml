@@ -1,0 +1,173 @@
+{% if values.createNamespace %}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ values.namespace }}
+  labels:
+    env: {{ values.envName }}
+    cluster-name: {{ values.clusterName }}
+---
+{% endif %}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ values.clusterName }}-credentials
+  namespace: {{ values.namespace }}
+  labels:
+    env: {{ values.envName }}
+    cluster-name: {{ values.clusterName }}
+type: kubernetes.io/basic-auth
+data:
+  username: {{ values.databaseUser | b64encode }}
+  password: {{ "postgres123" | b64encode }}  # Default password, should be changed
+
+---
+{% if values.enableBackup %}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ values.clusterName }}-backup-credentials
+  namespace: {{ values.namespace }}
+  labels:
+    env: {{ values.envName }}
+    cluster-name: {{ values.clusterName }}
+type: Opaque
+data:
+  ACCESS_KEY_ID: ""  # Configure with actual backup storage credentials
+  SECRET_ACCESS_KEY: ""
+---
+{% endif %}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ values.clusterName }}
+  namespace: {{ values.namespace }}
+  labels:
+    env: {{ values.envName }}
+    cluster-name: {{ values.clusterName }}
+spec:
+  instances: {{ values.instances }}
+  {% if values.enableHA and values.instances > 1 %}
+  primaryUpdateStrategy: {{ values.primaryUpdateStrategy }}
+  {% else %}
+  primaryUpdateStrategy: unsupervised
+  {% endif %}
+
+  imageName: "ghcr.io/cloudnative-pg/postgresql:{{ values.postgresqlVersion }}"
+
+  postgresql:
+    parameters:
+      max_connections: "{{ values.maxConnections }}"
+      shared_buffers: "{{ values.sharedBuffers }}"
+      effective_cache_size: "{{ (values.memoryLimits | replace('Gi', '') | int * 0.75) | round }}GB"
+      maintenance_work_mem: "{{ (values.memoryRequests | replace('Mi', '') | int * 0.1) | round }}MB"
+      wal_buffers: "16MB"
+      random_page_cost: "1.1"
+      effective_io_concurrency: "200"
+      {% if values.enableTLS %}
+      ssl: "on"
+      ssl_cert_file: "/etc/ssl/certs/tls.crt"
+      ssl_key_file: "/etc/ssl/private/tls.key"
+      {% endif %}
+
+  bootstrap:
+    initdb:
+      database: {{ values.databaseName }}
+      owner: {{ values.databaseUser }}
+      secret:
+        name: {{ values.clusterName }}-credentials
+
+  storage:
+    size: {{ values.storageSize }}
+    {% if values.storageClass %}
+    storageClass: {{ values.storageClass }}
+    {% endif %}
+
+  resources:
+    requests:
+      memory: "{{ values.memoryRequests }}"
+      cpu: "{{ values.cpuRequests }}"
+    limits:
+      memory: "{{ values.memoryLimits }}"
+      cpu: "{{ values.cpuLimits }}"
+
+  {% if values.enableMonitoring %}
+  monitoring:
+    enabled: true
+    prometheusRule:
+      enabled: true
+  {% endif %}
+
+  {% if values.enableBackup %}
+  backup:
+    retentionPolicy: "{{ values.backupRetentionDays }}d"
+    barmanObjectStore:
+      destinationPath: "s3://postgres-backups/{{ values.clusterName }}-{{ values.envName }}"
+      s3Credentials:
+        accessKeyId:
+          name: {{ values.clusterName }}-backup-credentials
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: {{ values.clusterName }}-backup-credentials
+          key: SECRET_ACCESS_KEY
+      wal:
+        retention: "{{ (values.backupRetentionDays * 0.17) | round }}d"
+      data:
+        retention: "{{ values.backupRetentionDays }}d"
+  {% endif %}
+
+  {% if values.enableHA and values.instances > 1 %}
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+  {% endif %}
+
+  {% if values.enableTLS %}
+  certificates:
+    serverTLSSecret: {{ values.clusterName }}-server-tls
+    serverCASecret: {{ values.clusterName }}-ca-tls
+    clientCASecret: {{ values.clusterName }}-ca-tls
+  {% endif %}
+
+---
+{% if values.enableConnectionPooling %}
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: {{ values.clusterName }}-pooler
+  namespace: {{ values.namespace }}
+  labels:
+    env: {{ values.envName }}
+    cluster-name: {{ values.clusterName }}
+spec:
+  cluster:
+    name: {{ values.clusterName }}
+
+  instances: 2
+  type: rw
+
+  pgbouncer:
+    poolMode: session
+    parameters:
+      max_client_conn: "{{ values.maxConnections }}"
+      default_pool_size: "{{ (values.maxConnections * 0.2) | round }}"
+      pool_mode: session
+      server_reset_query: DISCARD ALL
+
+  template:
+    metadata:
+      labels:
+        env: {{ values.envName }}
+        cluster-name: {{ values.clusterName }}
+    spec:
+      containers:
+        - name: pgbouncer
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+---
+{% endif %}

@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: auth-service-${{ parameters.envName | lower }}
+  namespace: argocd
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:prime-edm-auth-service
+spec:
+  project: default
+  sources:
+    # Source 1: External Helm Chart Repository
+    - repoURL: ${{ chartRepo }}
+      chart: ${{ chartName }}
+      targetRevision: ${{ chartVersion }}
+      helm:
+        releaseName: auth-service-${{ envName }}
+        valueFiles:
+          - $values/values.yaml
+    # Source 2: Values from Git Repository (no path specification)
+    - repoURL: https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ repoName }}
+      targetRevision: main
+      ref: values
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${{ namespace }}
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+      - PruneLast=true 

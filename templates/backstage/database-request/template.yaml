@@ -1,0 +1,331 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: request-database
+  title: Request Database for Service
+  description: |
+    Request a new database for your service in an existing PostgreSQL deployment.
+    
+    Creates:
+    - New database in shared PostgreSQL cluster
+    - Database user with appropriate permissions
+    - Kubernetes secret with connection details
+    - Documentation for database access
+  
+spec:
+  owner: platform-team
+  type: database-request
+  parameters:
+    - title: Service Information
+      required: [serviceName, envName]
+      properties:
+        serviceName:
+          type: string
+          description: Service name that needs the database
+          pattern: '^[a-z][a-z0-9-]*[a-z0-9]$'
+          ui:help: 'Service name (lowercase, alphanumeric, hyphens, must start with letter)'
+        envName:
+          type: string
+          description: Environment where database is needed
+          enum:
+            - dev
+            - staging
+            - prod
+          ui:help: 'Target environment for the database'
+        namespace:
+          type: string
+          description: Kubernetes namespace for the service
+          default: ${{ parameters.envName }}
+          ui:help: 'Namespace where your service runs (defaults to environment name)'
+
+    - title: Database Configuration
+      required: [databaseName]
+      properties:
+        databaseName:
+          type: string
+          description: Database name (with environment prefix)
+          default: ${{ parameters.envName }}_${{ parameters.serviceName | replace('-', '_') }}_db
+          pattern: '^[a-z][a-z0-9_]*$'
+          ui:help: 'Database name with environment prefix (e.g., dev_auth_service_db)'
+        dbUser:
+          type: string
+          description: Database username (with environment prefix)
+          default: ${{ parameters.envName }}_${{ parameters.serviceName | replace('-', '_') }}_user
+          pattern: '^[a-z][a-z0-9_]*$'
+          ui:help: 'Database user with environment prefix (e.g., dev_auth_service_user)'
+        
+    - title: PostgreSQL Cluster
+      required: [postgresCluster]
+      properties:
+        postgresCluster:
+          type: string
+          description: PostgreSQL cluster name
+          default: postgresql
+          ui:help: 'Name of the existing PostgreSQL cluster to create database in'
+        postgresNamespace:
+          type: string
+          description: PostgreSQL namespace
+          default: ${{ parameters.envName }}
+          ui:help: 'Namespace where PostgreSQL cluster is deployed'
+
+
+  steps:
+    # Step 1: Generate database configuration files
+    - id: fetch-db-config
+      name: Generate Database Configuration
+      action: fetch:template
+      input:
+        url: ./skeleton
+        targetPath: ./database-config/${{ parameters.serviceName }}
+        values:
+          serviceName: ${{ parameters.serviceName }}
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.databaseName }}
+          dbUser: ${{ parameters.dbUser }}
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+          targetRepo: ${{ parameters.serviceName }}-db-setup
+
+    # Step 2: Debug parameters
+    - id: debug-params
+      name: Debug Template Parameters
+      action: debug:log
+      input:
+        message: |
+          📋 Template Parameters:
+          - serviceName: '${{ parameters.serviceName }}'
+          - envName: '${{ parameters.envName }}'
+          - namespace: '${{ parameters.namespace }}'
+          - databaseName: '${{ parameters.databaseName }}'
+          - dbUser: '${{ parameters.dbUser }}'
+          - postgresCluster: '${{ parameters.postgresCluster }}'
+          - postgresNamespace: '${{ parameters.postgresNamespace }}'
+
+    # Step 3: Create database initialization job
+    - id: create-db-job
+      name: Create Database Initialization Job
+      action: fetch:template
+      input:
+        url: ./job-template
+        targetPath: ./manifests
+        values:
+          serviceName: ${{ parameters.serviceName }}
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.databaseName }}
+          dbUser: ${{ parameters.dbUser }}
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+
+    # Step 4: Generate catalog information
+    - id: fetch-catalog
+      name: Generate Catalog Info
+      action: fetch:template
+      input:
+        url: ./catalog-template
+        values:
+          serviceName: ${{ parameters.serviceName }}
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.databaseName }}
+          dbUser: ${{ parameters.dbUser }}
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+          targetRepo: ${{ parameters.serviceName }}-db-setup
+
+    # Step 5: Create repository with database configuration
+    - id: publish-config
+      name: Create Repository with Database Configuration
+      action: publish:gitea
+      input:
+        description: Database configuration for ${{ parameters.serviceName }} in ${{ parameters.envName }}
+        repoUrl: cnoe.localtest.me:8443/gitea?repo=${{ parameters.serviceName }}-db-setup
+        defaultBranch: main
+
+    # Step 6: Create ArgoCD Application for Database Configuration
+    - id: create-argocd-app
+      name: Create ArgoCD Application for Database Setup
+      action: cnoe:create-argocd-app
+      input:
+        appName: ${{ parameters.serviceName }}-database-setup
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        repoUrl: https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ parameters.serviceName }}-db-setup
+        path: manifests
+        targetRevision: main
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.postgresNamespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+
+    # Step 7: Register in catalog
+    - id: register
+      name: Register Component in Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish-config'].output.repoContentsUrl }}
+        catalogInfoPath: '/catalog-info.yaml'
+        optional: true
+
+    # Step 8: Wait for ArgoCD to sync
+    - id: wait-for-sync
+      name: Wait for ArgoCD Application Sync
+      action: debug:wait
+      input:
+        seconds: 15
+
+    # Step 9: Validate database creation
+    - id: validate-db
+      name: Validate Database Creation
+      action: debug:log
+      input:
+        message: |
+          Database setup initiated for: ${{ parameters.serviceName }}
+          
+          ## ✅ What was created:
+          
+          📁 **Repository**: ${{ parameters.serviceName }}-db-setup
+          🚀 **ArgoCD App**: ${{ parameters.serviceName }}-database-setup
+          📋 **Catalog Component**: ${{ parameters.serviceName }}-database-${{ parameters.envName }}
+          🗄️ **Database Name**: ${{ parameters.databaseName }}
+          👤 **Database User**: ${{ parameters.dbUser }}
+          🔐 **Target Secret**: ${{ parameters.serviceName }}-database
+          📦 **Target Namespace**: ${{ parameters.namespace }}
+          🐘 **PostgreSQL Cluster**: ${{ parameters.postgresCluster }}
+          
+          ## 🔄 AUTOMATED SETUP IN PROGRESS:
+          
+          ArgoCD is automatically applying the database configuration!
+          
+          1. **Monitor ArgoCD Application**:
+             - Application: ${{ parameters.serviceName }}-database-setup
+             - Check status at: https://cnoe.localtest.me:8443/argocd/applications/argocd/${{ parameters.serviceName }}-database-setup
+          
+          2. **Check job completion** (usually takes 1-2 minutes):
+             ```bash
+             kubectl get job database-init-job-${{ parameters.serviceName }}-${{ parameters.envName }} -n ${{ parameters.postgresNamespace }}
+             ```
+          
+          3. **Verify secret creation**:
+             ```bash
+             kubectl get secret ${{ parameters.serviceName }}-database -n ${{ parameters.namespace }}
+             ```
+          
+          4. **Test database connection** (after job completes):
+             ```bash
+             kubectl run test-db --rm -it --image=postgres:15 -- psql $(kubectl get secret ${{ parameters.serviceName }}-database -n ${{ parameters.namespace }} -o jsonpath='{.data.database-url}' | base64 -d)
+             ```
+          
+          ## 🔗 Connection Details:
+          
+          Your service can access the database using the secret: `${{ parameters.serviceName }}-database`
+          
+          Available secret keys:
+          - `database-url`: Full connection string
+          - `host`: PostgreSQL host
+          - `port`: PostgreSQL port  
+          - `database`: Database name
+          - `username`: Database user
+          - `password`: Database password
+          
+          ## 📖 Usage in Deployment:
+          
+          ```yaml
+          spec:
+            containers:
+            - name: ${{ parameters.serviceName }}
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${{ parameters.serviceName }}-database
+                      key: database-url
+                # Or individual components:
+                - name: DB_HOST
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${{ parameters.serviceName }}-database
+                      key: host
+                - name: DB_DATABASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${{ parameters.serviceName }}-database
+                      key: database
+          ```
+
+  output:
+    links:
+      - title: Database Setup ArgoCD App
+        url: https://cnoe.localtest.me:8443/argocd/applications/argocd/${{ parameters.serviceName }}-database-setup
+      - title: Database Configuration Repository
+        url: https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ parameters.serviceName }}-db-setup
+      - title: Database Component in Catalog
+        icon: catalog
+        entityRef: component:default/${{ parameters.serviceName }}-database-${{ parameters.envName }}
+      - title: Database Secret Resource
+        icon: catalog
+        entityRef: resource:default/${{ parameters.serviceName }}-database-secret-${{ parameters.envName }}
+      - title: PostgreSQL Cluster Resource
+        icon: catalog
+        entityRef: resource:default/postgresql-${{ parameters.envName }}
+      - title: PostgreSQL Cluster ArgoCD App
+        url: https://cnoe.localtest.me:8443/argocd/applications/argocd/${{ parameters.postgresCluster }}-${{ parameters.envName }}
+    text:
+      - title: Database Request Summary
+        content: |
+          Your database has been requested for the **${{ parameters.serviceName }}** service!
+          
+          ## ✅ Database Details:
+          
+          - **Service**: ${{ parameters.serviceName }}
+          - **Environment**: ${{ parameters.envName }}
+          - **Database**: ${{ parameters.databaseName }}
+          - **User**: ${{ parameters.dbUser }}
+          - **Secret**: ${{ parameters.serviceName }}-database
+          - **Namespace**: ${{ parameters.namespace }}
+          
+          ## 🔄 Next Steps:
+          
+          1. **Monitor ArgoCD Application**: Check the database setup progress in ArgoCD
+          2. **Wait for Job Completion**: Usually takes 1-2 minutes for database creation
+          3. **Verify Secret Creation**: Ensure the database secret was created
+          4. **Update Your Service**: Use the generated secret in your deployment
+          
+          ## 🔐 Security Notes:
+          
+          - Database password is auto-generated and stored securely
+          - User has limited permissions (no superuser access)
+          - Connection is only allowed from within the cluster
+          - Secret is automatically created in your service namespace
+          
+          ## 🛠️ Troubleshooting:
+          
+          If the database creation fails:
+          1. **Check the initialization job logs**:
+             ```bash
+             kubectl logs job/database-init-job-${{ parameters.serviceName }}-${{ parameters.envName }} -n ${{ parameters.postgresNamespace }}
+             ```
+          
+          2. **Verify PostgreSQL cluster is healthy**:
+             ```bash
+             kubectl get pods -n ${{ parameters.postgresNamespace }} | grep postgresql
+             ```
+          
+          3. **Ensure target namespace exists**:
+             ```bash
+             kubectl get namespace ${{ parameters.namespace }}
+             ```
+          
+          4. **If you see "Failed to unmarshal init--db.yaml" errors**:
+             - Delete existing ArgoCD application: `kubectl delete application ${{ parameters.serviceName }}-database-setup -n argocd`
+             - Delete existing repository at: https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ parameters.serviceName }}-db-setup
+             - Re-run this template
+          
+          5. **Contact platform team if issues persist**

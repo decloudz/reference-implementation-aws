@@ -1,0 +1,440 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: request-kafka-cluster
+  title: Request Kafka Cluster
+  description: |
+    Request a new Apache Kafka cluster using Strimzi operator with KRaft mode.
+    
+    Creates:
+    - High-availability Kafka cluster with KRaft (no ZooKeeper)
+    - Configurable controller and broker node pools
+    - Persistent storage for data durability
+    - Internal and TLS listeners for secure communication
+    - Topic and User operators for management
+    - SASL authentication support
+  
+spec:
+  owner: platform-team
+  type: data-infrastructure
+  parameters:
+    - title: Cluster Information
+      required: [clusterName, envName]
+      properties:
+        clusterName:
+          type: string
+          description: Kafka cluster name
+          pattern: '^[a-z][a-z0-9-]*[a-z0-9]$'
+          ui:help: 'Cluster name (lowercase, alphanumeric, hyphens, must start with letter)'
+        envName:
+          type: string
+          description: Environment for the Kafka cluster
+          enum:
+            - dev
+            - staging
+            - prod
+          ui:help: 'Target environment for the Kafka cluster'
+        namespace:
+          type: string
+          description: Kubernetes namespace for the cluster
+          default: ${{ parameters.envName }}-kafka
+          ui:help: 'Namespace where Kafka cluster will be deployed'
+
+    - title: Kafka Configuration
+      properties:
+        kafkaVersion:
+          type: string
+          description: Kafka version
+          default: "3.9.0"
+          enum:
+            - "3.9.0"
+            - "4.0.0"
+          ui:help: 'Apache Kafka version to deploy (supported by Strimzi 0.46.1)'
+        metadataVersion:
+          type: string
+          description: Kafka metadata version
+          default: "3.9-IV0"
+          enum:
+            - "3.9-IV0"
+            - "4.0-IV0"
+          ui:help: 'Kafka metadata version for KRaft mode'
+        kafkaReplicas:
+          type: integer
+          description: Number of Kafka brokers
+          default: 1
+          minimum: 1
+          maximum: 9
+          ui:help: 'Number of Kafka broker replicas (recommended: 3 for production)'
+        enableControllers:
+          type: boolean
+          title: Enable dedicated controller nodes
+          description: Use separate controller nodes for KRaft metadata
+          default: false
+          ui:help: 'Enable dedicated controllers (false = combined broker+controller nodes)'
+        controllerReplicas:
+          type: integer
+          description: Number of dedicated controller nodes
+          default: 1
+          minimum: 1
+          maximum: 5
+          ui:help: 'Number of controller replicas (only if dedicated controllers enabled)'
+
+    - title: Storage Configuration
+      properties:
+        kafkaStorageSize:
+          type: string
+          description: Storage size per Kafka broker
+          default: "10Gi"
+          enum:
+            - "5Gi"
+            - "10Gi"
+            - "20Gi"
+            - "50Gi"
+            - "100Gi"
+          ui:help: 'Persistent storage size for each Kafka broker'
+        controllerStorageSize:
+          type: string
+          description: Storage size per controller node
+          default: "10Gi"
+          enum:
+            - "5Gi"
+            - "10Gi"
+            - "20Gi"
+            - "50Gi"
+          ui:help: 'Persistent storage size for each controller node'
+        storageClass:
+          type: string
+          description: Storage class for persistent volumes
+          default: "standard"
+          ui:help: 'Kubernetes storage class for persistent volumes'
+
+    - title: Security & Networking
+      properties:
+        enableTLS:
+          type: boolean
+          title: Enable TLS encryption
+          description: Enable TLS for secure communication
+          default: true
+          ui:help: 'Enable TLS encryption for Kafka communications'
+        enableAuthentication:
+          type: boolean
+          title: Enable SASL authentication
+          description: Enable SASL SCRAM-SHA-512 authentication for clients
+          default: true
+          ui:help: 'Enable SASL authentication with automatic user creation'
+
+    - title: Advanced Options
+      properties:
+        enableMonitoring:
+          type: boolean
+          title: Enable monitoring
+          description: Enable JMX Prometheus exporter for metrics
+          default: true
+          ui:help: 'Enable Prometheus metrics collection'
+        replicationFactor:
+          type: integer
+          description: Default replication factor
+          default: 1
+          minimum: 1
+          maximum: 9
+          ui:help: 'Default replication factor for topics'
+        minInSyncReplicas:
+          type: integer
+          description: Minimum in-sync replicas
+          default: 1
+          minimum: 1
+          maximum: 9
+          ui:help: 'Minimum number of in-sync replicas'
+
+    - title: Resource Configuration
+      properties:
+        brokerCpuRequests:
+          type: string
+          description: CPU requests for Kafka brokers
+          default: "250m"
+          enum:
+            - "200m"
+            - "250m"
+            - "500m"
+            - "1000m"
+          ui:help: 'CPU requests for each Kafka broker'
+        brokerMemoryRequests:
+          type: string
+          description: Memory requests for Kafka brokers
+          default: "1Gi"
+          enum:
+            - "512Mi"
+            - "1Gi"
+            - "2Gi"
+            - "4Gi"
+          ui:help: 'Memory requests for each Kafka broker'
+        brokerCpuLimits:
+          type: string
+          description: CPU limits for Kafka brokers
+          default: "500m"
+          enum:
+            - "500m"
+            - "1000m"
+            - "2000m"
+            - "4000m"
+          ui:help: 'CPU limits for each Kafka broker'
+        brokerMemoryLimits:
+          type: string
+          description: Memory limits for Kafka brokers
+          default: "1Gi"
+          enum:
+            - "1Gi"
+            - "2Gi"
+            - "4Gi"
+            - "8Gi"
+          ui:help: 'Memory limits for each Kafka broker'
+        controllerCpuRequests:
+          type: string
+          description: CPU requests for controller nodes
+          default: "250m"
+          enum:
+            - "200m"
+            - "250m"
+            - "500m"
+            - "1000m"
+          ui:help: 'CPU requests for each controller node'
+        controllerMemoryRequests:
+          type: string
+          description: Memory requests for controller nodes
+          default: "1Gi"
+          enum:
+            - "512Mi"
+            - "1Gi"
+            - "2Gi"
+            - "4Gi"
+          ui:help: 'Memory requests for each controller node'
+        controllerCpuLimits:
+          type: string
+          description: CPU limits for controller nodes
+          default: "500m"
+          enum:
+            - "500m"
+            - "1000m"
+            - "2000m"
+          ui:help: 'CPU limits for each controller node'
+        controllerMemoryLimits:
+          type: string
+          description: Memory limits for controller nodes
+          default: "1Gi"
+          enum:
+            - "1Gi"
+            - "2Gi"
+            - "4Gi"
+          ui:help: 'Memory limits for each controller node'
+
+    - title: Namespace Configuration
+      properties:
+        createNamespace:
+          type: boolean
+          title: Create new namespace
+          description: Create a new namespace for the cluster
+          default: false
+          ui:help: 'Enable if you want to create a new namespace, disable to use existing namespace'
+
+  steps:
+    # Step 1: Debug parameters
+    - id: debug-params
+      name: Debug Template Parameters
+      action: debug:log
+      input:
+        message: |
+          📋 Kafka Cluster Request Parameters:
+          - Cluster Name: '${{ parameters.clusterName }}'
+          - Environment: '${{ parameters.envName }}'
+          - Namespace: '${{ parameters.namespace }}'
+          - Kafka Version: '${{ parameters.kafkaVersion }}'
+          - Kafka Replicas: ${{ parameters.kafkaReplicas }}
+          - ZooKeeper Replicas: ${{ parameters.zookeeperReplicas }}
+          - Kafka Storage: ${{ parameters.kafkaStorageSize }}
+          - ZooKeeper Storage: ${{ parameters.zookeeperStorageSize }}
+          - TLS Enabled: ${{ parameters.enableTLS }}
+          - Monitoring Enabled: ${{ parameters.enableMonitoring }}
+
+    # Step 2: Generate Kafka cluster manifests
+    - id: create-kafka-manifests
+      name: Generate Kafka Cluster Manifests
+      action: fetch:template
+      input:
+        url: ./skeleton/manifests
+        targetPath: ./manifests
+        values:
+          clusterName: ${{ parameters.clusterName }}
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          createNamespace: ${{ parameters.createNamespace }}
+          kafkaVersion: ${{ parameters.kafkaVersion }}
+          metadataVersion: ${{ parameters.metadataVersion }}
+          kafkaReplicas: ${{ parameters.kafkaReplicas }}
+          enableControllers: ${{ parameters.enableControllers }}
+          controllerReplicas: ${{ parameters.controllerReplicas }}
+          kafkaStorageSize: ${{ parameters.kafkaStorageSize }}
+          controllerStorageSize: ${{ parameters.controllerStorageSize }}
+          storageClass: ${{ parameters.storageClass }}
+          enableTLS: ${{ parameters.enableTLS }}
+          enableAuthentication: ${{ parameters.enableAuthentication }}
+          replicationFactor: ${{ parameters.replicationFactor }}
+          minInSyncReplicas: ${{ parameters.minInSyncReplicas }}
+          brokerCpuRequests: ${{ parameters.brokerCpuRequests }}
+          brokerMemoryRequests: ${{ parameters.brokerMemoryRequests }}
+          brokerCpuLimits: ${{ parameters.brokerCpuLimits }}
+          brokerMemoryLimits: ${{ parameters.brokerMemoryLimits }}
+          controllerCpuRequests: ${{ parameters.controllerCpuRequests }}
+          controllerMemoryRequests: ${{ parameters.controllerMemoryRequests }}
+          controllerCpuLimits: ${{ parameters.controllerCpuLimits }}
+          controllerMemoryLimits: ${{ parameters.controllerMemoryLimits }}
+
+    # Step 3: Generate catalog information
+    - id: fetch-catalog
+      name: Generate Catalog Info
+      action: fetch:template
+      input:
+        url: ./catalog-template
+        values:
+          clusterName: ${{ parameters.clusterName }}
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          kafkaVersion: ${{ parameters.kafkaVersion }}
+          kafkaReplicas: ${{ parameters.kafkaReplicas }}
+          zookeeperReplicas: ${{ parameters.zookeeperReplicas }}
+
+    # Step 4: Create repository with Kafka configuration
+    - id: publish-config
+      name: Create Repository with Kafka Configuration
+      action: publish:gitea
+      input:
+        description: Kafka cluster ${{ parameters.clusterName }} configuration for ${{ parameters.envName }}
+        repoUrl: cnoe.localtest.me:8443/gitea?repo=kafka-${{ parameters.clusterName }}-${{ parameters.envName }}
+        defaultBranch: main
+
+    # Step 5: Register in catalog
+    - id: register
+      name: Register Component in Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish-config'].output.repoContentsUrl }}
+        catalogInfoPath: '/catalog-info.yaml'
+        optional: true
+
+    # Step 6: Create ArgoCD Application for Kafka Cluster
+    - id: create-argocd-app
+      name: Create ArgoCD Application for Kafka Cluster
+      action: cnoe:create-argocd-app
+      input:
+        appName: kafka-${{ parameters.clusterName }}-${{ parameters.envName }}
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        repoUrl: https://cnoe.localtest.me:8443/gitea/giteaAdmin/kafka-${{ parameters.clusterName }}-${{ parameters.envName }}
+        path: manifests
+        targetRevision: main
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.namespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+
+    # Step 7: Wait for ArgoCD to sync
+    - id: wait-for-sync
+      name: Wait for ArgoCD Application Sync
+      action: debug:wait
+      input:
+        seconds: 30
+
+    # Step 8: Validate cluster deployment
+    - id: validate-cluster
+      name: Validate Kafka Cluster Deployment
+      action: debug:log
+      input:
+        message: |
+          🎉 **Kafka Cluster Deployment Initiated!**
+          
+          ## ✅ What was created:
+          
+          📁 **Repository**: kafka-${{ parameters.clusterName }}-${{ parameters.envName }}
+          🚀 **ArgoCD App**: kafka-${{ parameters.clusterName }}-${{ parameters.envName }}
+          📋 **Catalog Component**: kafka-${{ parameters.clusterName }}-${{ parameters.envName }}
+          🌍 **Environment**: ${{ parameters.envName }}
+          📦 **Namespace**: ${{ parameters.namespace }}
+          
+          ## 🔧 Cluster Configuration:
+          
+          - **Cluster Name**: ${{ parameters.clusterName }}
+          - **Kafka Version**: ${{ parameters.kafkaVersion }}
+          - **Kafka Brokers**: ${{ parameters.kafkaReplicas }}
+          - **ZooKeeper Nodes**: ${{ parameters.zookeeperReplicas }}
+          - **Storage per Broker**: ${{ parameters.kafkaStorageSize }}
+          - **TLS Encryption**: ${{ parameters.enableTLS }}
+          - **Monitoring**: ${{ parameters.enableMonitoring }}
+          
+          ## 🔄 AUTOMATED DEPLOYMENT IN PROGRESS:
+          
+          ArgoCD is automatically deploying your Kafka cluster!
+          
+          ### Monitor Progress:
+          - [Kafka Cluster ArgoCD App](https://cnoe.localtest.me:8443/argocd/applications/argocd/kafka-${{ parameters.clusterName }}-${{ parameters.envName }})
+          
+          ### Check Cluster Status (usually takes 5-10 minutes):
+          ```bash
+          kubectl get kafka ${{ parameters.clusterName }} -n ${{ parameters.namespace }}
+          kubectl get pods -n ${{ parameters.namespace }}
+          ```
+          
+          ### Access Kafka Cluster:
+          - **Bootstrap Servers**: ${{ parameters.clusterName }}-kafka-bootstrap.${{ parameters.namespace }}.svc.cluster.local:9092
+          {% if parameters.enableTLS %}- **TLS Bootstrap**: ${{ parameters.clusterName }}-kafka-bootstrap.${{ parameters.namespace }}.svc.cluster.local:9093{% endif %}
+          
+          ## 🎯 Next Steps:
+          
+          1. **Monitor ArgoCD Application**: Check deployment progress in ArgoCD
+          2. **Wait for Cluster Ready**: Usually takes 5-10 minutes for full deployment
+          3. **Create Topics**: Use Kafka topics for your applications
+          4. **Connect Applications**: Use the bootstrap servers for client connections
+          
+          ## 🔐 Security Notes:
+          
+          {% if parameters.enableTLS %}- TLS encryption is enabled for secure communication{% endif %}
+          {% if parameters.enableAuthentication %}- SASL authentication is configured{% endif %}
+          - Inter-broker communication is secured
+          - Topics have replication factor of ${{ parameters.replicationFactor }}
+
+  output:
+    links:
+      - title: Kafka Cluster ArgoCD App
+        url: https://cnoe.localtest.me:8443/argocd/applications/argocd/kafka-${{ parameters.clusterName }}-${{ parameters.envName }}
+      - title: Kafka Configuration Repository
+        url: https://cnoe.localtest.me:8443/gitea/giteaAdmin/kafka-${{ parameters.clusterName }}-${{ parameters.envName }}
+      - title: Kafka Cluster Component
+        icon: catalog
+        entityRef: component:default/kafka-${{ parameters.clusterName }}-${{ parameters.envName }}
+    text:
+      - title: Kafka Cluster Request Summary
+        content: |
+          Your Kafka cluster has been requested!
+          
+          ## ✅ Cluster Details:
+          
+          - **Cluster**: ${{ parameters.clusterName }}
+          - **Environment**: ${{ parameters.envName }}
+          - **Namespace**: ${{ parameters.namespace }}
+          - **Brokers**: ${{ parameters.kafkaReplicas }}
+          - **Version**: ${{ parameters.kafkaVersion }}
+          
+          ## 🔄 Next Steps:
+          
+          1. **Monitor Deployment**: Check ArgoCD application progress
+          2. **Wait for Ready State**: Cluster deployment takes 5-10 minutes
+          3. **Create Topics**: Configure topics for your applications
+          4. **Connect Applications**: Use bootstrap servers for connectivity
+          
+          ## 📞 Support:
+          
+          If you encounter issues, contact the platform team or check the ArgoCD application logs.

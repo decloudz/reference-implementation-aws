@@ -1,0 +1,78 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ${{ values.serviceName }}-database-${{ values.envName }}
+  title: ${{ values.serviceName | title }} Database (${{ values.envName | title }})
+  description: PostgreSQL database for ${{ values.serviceName }} in ${{ values.envName }} environment
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:database-request
+    argocd/app-name: ${{ values.serviceName }}-database-setup
+    github.com/project-slug: giteaAdmin/${{ values.targetRepo }}
+  tags:
+    - database
+    - postgresql
+    - ${{ values.envName }}
+    - ${{ values.serviceName }}
+  links:
+    - url: https://cnoe.localtest.me:8443/argocd/applications/argocd/${{ values.serviceName }}-database-setup
+      title: ArgoCD Application
+      icon: deployment
+    - url: https://cnoe.localtest.me:8443/gitea/giteaAdmin/${{ values.targetRepo }}
+      title: Repository
+      icon: github
+spec:
+  type: database
+  lifecycle: production
+  owner: platform-team
+  system: platform-infrastructure
+  dependsOn:
+    - resource:default/postgresql-${{ values.envName }}
+  providesApis: []
+  consumesApis: []
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: ${{ values.serviceName }}-database-secret-${{ values.envName }}
+  title: ${{ values.serviceName | title }} Database Secret (${{ values.envName | title }})
+  description: Kubernetes secret containing database connection details for ${{ values.serviceName }}
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:database-request
+    kubernetes.io/secret-name: ${{ values.serviceName }}-database
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - secret
+    - database
+    - ${{ values.envName }}
+    - ${{ values.serviceName }}
+spec:
+  type: k8s-secret
+  lifecycle: production
+  owner: platform-team
+  system: platform-infrastructure
+  dependsOn:
+    - component:default/${{ values.serviceName }}-database-${{ values.envName }}
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: postgresql-${{ values.envName }}
+  title: PostgreSQL Cluster (${{ values.envName | title }})
+  description: Shared PostgreSQL cluster for ${{ values.envName }} environment
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    argocd/app-name: ${{ values.postgresCluster }}-${{ values.envName }}
+    kubernetes.io/cluster-name: ${{ values.postgresCluster }}
+    kubernetes.io/namespace: ${{ values.postgresNamespace }}
+  tags:
+    - database
+    - postgresql
+    - cluster
+    - ${{ values.envName }}
+spec:
+  type: database-cluster
+  lifecycle: production
+  owner: platform-team
+  system: platform-infrastructure

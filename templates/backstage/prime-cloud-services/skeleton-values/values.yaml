@@ -1,0 +1,1159 @@
+global:
+  image:
+    # -- Overrides the Docker registry globally for all images
+    registry: null
+  # -- Overrides the priorityClassName for all pods
+  priorityClassName: null
+  # -- configures cluster domain ("cluster.local" by default)
+  clusterDomain: "cluster.local"
+  # -- configures DNS service name
+  dnsService: "kube-dns"
+  # -- configures DNS service namespace
+  dnsNamespace: "kube-system"
+
+  # -- Overrides the chart's name
+  nameOverride: null
+  # -- Overrides the chart's computed fullname
+  fullnameOverride: null
+  # -- Image pull secrets for Docker images
+  imagePullSecrets: []
+  # - name: k8s-ecr-login-renew-docker-secret
+  # -- hostAliases to add
+  hostAliases: []
+  #  - ip: 1.2.3.4
+  #    hostnames:
+  #      - domain.tld
+  credentials:
+    source: values # aws-secrets-manager, existing-secret, or values
+    # Configure the direct credentials that are currently scattered in the values file
+    direct:
+      host: "postgres"
+      port: "5432"
+      username: "prime"
+      password: "password"
+    # For existing secret
+    existingSecret:
+      name: my-database-secret
+      hostKey: host
+      portKey: port
+      usernameKey: username
+      passwordKey: password
+
+# Configuration values for setting up CSI driver integration
+# vault:
+#   # Name of the Key Vault containing the secrets
+#   azureKeyVaultName: "kv-idspoc-t-fc1"
+#   secrets:
+#     # Name of the Kubernetes secret to create
+#     - name: prime-cloud-secrets
+#       # List of Key Vault secrets to sync to Kubernetes (!names have to match the Key Vault secrets!)
+#       values:
+#         - name: postgres-username
+#           objectName: postgres_username
+#         - name: postgres-password
+#           objectName: postgres_password
+#         - name: postgres-database
+#           objectName: postgres_database
+#         - name: postgres-host
+#           objectName: postgres_host
+#         - name: postgres-url
+#           objectName: postgres_url
+#         - name: postgres-port
+#           objectName: postgres_port
+#         - name: cassandra-username
+#           objectName: cassandra_username
+#         - name: cassandra-password
+#           objectName: cassandra_password
+#         - name: cassandra-database
+#           objectName: cassandra_database
+#         - name: cassandra-host
+#           objectName: cassandra_host
+#         - name: cassandra-url
+#           objectName: cassandra_url
+#         - name: cassandra-port
+#           objectName: cassandra_port
+
+#   # Name of the Kubernetes secret containing the service principal credentials
+#   # servicePrincipalSecretName: "secrets-store-creds"
+#   userAssignedIdentityID: "353d05b9-5198-4413-8da5-73676f77bf0b"
+#   secretProviderClassName: ""
+#   # optional name of the volume
+#   volumeName: "secret-volume"
+#   # optional directory to mount the secrets
+#   secretsDir: "secret-dir"
+#   # ID of the Azure tenant
+#   azureTenantId: "6e06e42d-6925-47c6-b9e7-9581c7ca302a"
+image:
+  registry: "ac-m2repo-prod.asset-control.com:5443"
+  name: prime/init-prime-server
+  tag: 1.0.5
+  pullPolicy: Always
+serviceAccountName: prime
+
+
+# Deployment configuration for applications
+deploy:
+  # Whether to deploy Postgres (database) as part of this Helm release
+  postgres: False
+  # Whether to deploy Cassandra (database) as part of this Helm release
+  cassandra: False
+  # Whether to deploy Hazelcast (cache) as part of this Helm release
+  hazelcast: true
+  # Whether to deploy Kafka (message broker) as part of this Helm release
+  kafka: False
+
+
+hazelcast:
+  enabled: true
+  persistence:
+    enabled: true
+    accessModes:
+    - ReadWriteOnce
+    size: 8Gi
+    storageClass: gp2
+  yaml:
+    hazelcast:
+      network:
+        join:
+          kubernetes:
+            enabled: true
+            service-name: ${serviceName}
+            namespace: ${namespace}
+        rest-api:
+          enabled: true
+      jet:
+        enabled: ${hz.jet.enabled}
+  # Security Context properties
+  securityContext:
+    # enabled is a flag to enable Security Context
+    enabled: false
+    # runAsUser is the user ID used to run the container
+    runAsUser: 65534
+    # runAsGroup is the primary group ID used to run all processes within any container of the pod
+    runAsGroup: 65534
+  mancenter:
+    # Hazelcast Management Center Service properties
+    service:
+      type: ClusterIP
+  env: 
+    - name: MC_DEFAULT_CLUSTER
+      value: "hz-cluster"
+    - name: MC_DEFAULT_CLUSTER_MEMBERS
+      value: "hazelcast"
+    - name: MC_ADMIN_USER
+      value: "admin"
+    - name: MC_ADMIN_PASSWORD
+      value: "zoolaiV7"
+    - name: HZ_CLUSTERNAME
+      value: "hz-cluster"
+    - name: HZ_CPSUBSYSTEM_CPMEMBERCOUNT
+      value: "3"
+    - name: HZ_NETWORK_RESTAPI_ENABLED
+      value: "true"
+    - name: HZ_NETWORK_RESTAPI_ENDPOINTGROUPS.CP.ENABLED
+      value: "true"
+    # - name: HZ_NETWORK_JOIN_MULTICAST_ENABLED
+    #   value: "false"
+    # - name: HZ_NETWORK_JOIN_KUBERNETES_ENABLED
+    #   value: "true"
+    # - name: HZ_NETWORK_JOIN_KUBERNETES_SERVICEDNS
+    #   value: "hazelcast"
+  ingress:
+    enabled: false
+    annotations: {}
+    className: nginx
+    hosts:
+    - hazelcast-mancenter.cluster.domain
+    tls:
+    - secretName: hazelcast-ingress-tls
+      hosts:
+      - hazelcast-mancenter.cluster.domain
+
+
+prime:
+  # -- If set, these annotations are added to all of the Kubernetes controllers
+  # (Deployments, StatefulSets, etc) that this chart launches. Use this to
+  # implement something like the "Wave" controller or another controller that
+  # is monitoring top level deployment resources.
+  annotations: {}
+  # Configures the readiness probe for all of the prime pods
+  readinessProbe: {}
+  # httpGet:
+  #   path: /ready
+  #   port: http
+  # initialDelaySeconds: 30
+  # timeoutSeconds: 1
+  livenessProbe: {}
+  # httpGet:
+  #   path: /ready
+  #   port: http
+  # initialDelaySeconds: 300
+  image:
+    # -- The Docker registry
+    registry: ac-m2repo-prod.asset-control.com:5443
+    # -- Docker image repository
+    repository: prime
+    # -- Overrides the image tag whose default is the chart's appVersion
+    tag: null
+    # -- Docker image pull policy
+    pullPolicy: IfNotPresent
+  # -- Common labels for all pods
+  podLabels: {}
+  # -- Common annotations for all pods
+  podAnnotations: {}
+  # -- Common command override for all pods (except gateway)
+  command: null
+  # -- The number of old ReplicaSets to retain to allow rollback
+  revisionHistoryLimit: 10
+  # -- The SecurityContext for Prime pods
+  podSecurityContext: {}
+  # fsGroup: 10001
+  # runAsGroup: 10001
+  # runAsNonRoot: true
+  # runAsUser: 10001
+  # -- The SecurityContext for Prime containers
+  containerSecurityContext: {}
+  # readOnlyRootFilesystem: true
+  # capabilities:
+  #   drop:
+  #     - ALL
+  # allowPrivilegeEscalation: false
+  # -- Specify an existing secret containing Prime license. If non-empty, overrides `prime.secret`
+  existingSecretForLicense: ""
+  # -- Store the Prime License as a secret.
+  licenseAsSecret: false
+  # -- Adds the appProtocol field to the memberlist service. This allows memberlist to work with istio protocol selection. Ex: "http" or "tcp"
+  appProtocol: ""
+  # -- Common annotations for all prime services
+  serviceAnnotations: {}
+  # Prime server configuration
+  # Refers to Prime Documentation
+  server: {}
+  # -- HTTP server listen port
+  # http_listen_port: 3100
+  # -- Config file contents for Prime
+  serviceAccount:
+    # -- Create query service account
+    create: true
+    # -- query service account name
+    name: prime
+    # -- Annotations applied to created service account
+    annotations: {}
+    # -- Automount API credentials for the Service Account
+    automountServiceAccountToken: true
+# Administrator credentials when not using an existing secret (see below)
+adminUser: "prime"
+adminPassword: "password"
+# # Use an existing secret for the admin user.
+admin:
+  ## Name of the secret. Can be templated.
+  existingSecret: ""
+  userKey: admin-user
+  passwordKey: admin-password
+license:
+  data: |
+    # Generated on December 19, 2024 at 16:46:37 +0100, ID = LF61754623197192
+    [/modules/AC_DSM]
+    maximum instances=0
+    [/modules/ACDESKTOP_4D]
+    maximum instances=8
+    [/modules/AC Package Manager]
+    maximum instances=0
+    [/modules/AC_WEB_GUI]
+    maximum instances=0
+    [/modules/ACADMINDESKTOP]
+    maximum instances=0
+    [/modules/ANNA]
+    maximum instances=0
+    [/modules/BLOOMBERG]
+    allowed actions=persecurity,backoffice
+    maximum instances=0
+    [/modules/BLOOMBERG_N0]
+    maximum instances=0
+    [/modules/COLLECTION-SERVICE]
+    maximum instances=0
+    [/modules/ACCONNECT]
+    maximum instances=0
+    [/modules/CONSOLIDATION_C0]
+    maximum instances=0
+    [/modules/DBRS_RATINGSNOW]
+    maximum instances=0
+    [/modules/DBRS_RATINGSNOW_N0]
+    maximum instances=0
+    [/modules/ACDESKTOP]
+    allowed actions=desktop3-rdm
+    [/modules/FCIT_FINCHINA]
+    maximum instances=0
+    [/modules/FCIT_FINCHINA_N0]
+    maximum instances=0
+    [/modules/FITCH_RDS]
+    maximum instances=0
+    [/modules/FITCH_RDS_N0]
+    maximum instances=0
+    [/modules/ISO20022]
+    maximum instances=0
+    [/modules/ISO20022_N0]
+    maximum instances=0
+    [/modules/INTERFACE_ENGINE_CONFIGURABLE_LOADER]
+    maximum instances=0
+    [/modules/INTERFACE_ENGINE_CONFIGURABLE_LOADER_N0]
+    maximum instances=0
+    [/modules/INTERFACE_ENGINE_DEVELOPMENT_KIT]
+    maximum instances=0
+    [/modules/INTERFACE_ENGINE_DEVELOPMENT_KIT_N0]
+    maximum instances=0
+    [/modules/LSE_SEDOL_MASTERFILE]
+    maximum instances=0
+    [/modules/LSE_SEDOL_MASTERFILE_N0]
+    maximum instances=0
+    [/modules/Description]
+    comment=All-purpose license for Engineering - server team - ISO20022 added
+    customer=Asset Control International B.V.
+    reference=INT_ENGINEERING_DEVTEST_TERM_8
+    [/modules/MARKIT]
+    maximum instances=0
+    [/modules/MARKIT_N0]
+    maximum instances=0
+    [/modules/MOODYS]
+    maximum instances=0
+    [/modules/MOODYS_RDS]
+    maximum instances=0
+    [/modules/MOODYS_N0]
+    maximum instances=0
+    [/modules/GIM]
+    maximum instances=0
+    [/modules/NORMALIZATION_N0]
+    maximum instances=0
+    [/modules/PRICE_CONSTRUCTION_GUI]
+    maximum instances=0
+    [/modules/Server]
+    4-eyes static data=true
+    4-eyes time series=true
+    Analytics Library Extension=true
+    compound static data=true
+    compound time series=true
+    data lineage=true
+    derived static data=true
+    derived time series attributes=true
+    extended static data=true
+    hostid=*(2026-01-01)
+    intraday time series=true
+    multi-dimensional time series=true
+    number of ados=10000000
+    number of static attributes=10000000
+    number of threads=999
+    profiling=true
+    query server instances=10
+    rdbms=postgres,mssql
+    replicator=true
+    sign transactions=false
+    triggered static data=true
+    update server instances=10
+    [/modules/TR_DS_PLUS]
+    maximum instances=0
+    [/modules/REUTERSDATASCOPE]
+    maximum instances=0
+    [/modules/REUTERSDATASCOPE_N0]
+    maximum instances=0
+    [/modules/TR_DATASCOPE_SELECT]
+    maximum instances=0
+    [/modules/TR_DATASCOPE_SELECT_N0]
+    maximum instances=0
+    [/modules/SELECTFEED]
+    maximum instances=0
+    [/modules/SELECTFEED_N0]
+    maximum instances=0
+    [/modules/SNP_CROSSWALK_BULK]
+    maximum instances=0
+    [/modules/SNP_CROSSWALK_BULK_N0]
+    maximum instances=0
+    [/modules/SNP_CUSIP_DB]
+    maximum instances=0
+    [/modules/SNP_CUSIP_DB_N0]
+    maximum instances=0
+    [/modules/RATINGSXPRESS]
+    maximum instances=0
+    [/modules/RATINGSXPRESS_N0]
+    maximum instances=0
+    [/modules/XPRESSFEED]
+    maximum instances=0
+    [/modules/SIMPLE-INTERFACE]
+    maximum instances=0
+    [/modules/SMHOLIDAYCALENDAR]
+    maximum instances=0
+    [/modules/TELEKURS_VDF]
+    maximum instances=0
+    [/modules/TELEKURS_VDF_N0]
+    maximum instances=0
+    [/modules/THOMSON_MUNICIPAL_VRDN_DATA]
+    maximum instances=0
+    [/modules/THOMSON_MUNICIPAL_VRDN_DATA_N0]
+    maximum instances=0
+    [/modules/WMVF1]
+    maximum instances=0
+    [/modules/WMVF1_N0]
+    maximum instances=0
+    [/modules/EMBS_MBS_ONLINE_DATAFILES_N0]
+    maximum instances=0
+    [/modules/EMBS_MBS_ONLINE_DATAFILES]
+    maximum instances=0
+    302C0214063263FB83E0F4E64CEEB6DF074A8B784E8016300214446D12EADA6F3F8251DC1B06275AF116F8475A7F
+
+
+# Deployment configuration for applications
+# Query component settings
+query:
+  enabled: true
+  # -- Kind of deployment [StatefulSet/Deployment]
+  kind: StatefulSet
+  # -- Number of replicas for the query
+  replicas: 1
+  # -- hostAliases to add
+  hostAliases: []
+  #  - ip: 1.2.3.4
+  #    hostnames:
+  #      - domain.tld
+  autoscaling:
+    # -- Enable autoscaling for the query
+    enabled: false
+    # -- Minimum autoscaling replicas for the query
+    minReplicas: 1
+    # -- Maximum autoscaling replicas for the query
+    maxReplicas: 3
+    # -- Target CPU utilisation percentage for the query
+    targetCPUUtilizationPercentage: 60
+    # -- Target memory utilisation percentage for the query
+    targetMemoryUtilizationPercentage: null
+    # -- Allows one to define custom metrics using the HPA/v2 schema (for example, Pods, Object or External metrics)
+    customMetrics: []
+    # - type: Pods
+    #   pods:
+    #     metric:
+    #       name: prime_lines_total
+    #     target:
+    #       type: AverageValue
+    #       averageValue: 10k
+    behavior:
+      # -- Enable autoscaling behaviours
+      enabled: false
+      # -- define scale down policies, must conform to HPAScalingRules
+      scaleDown: {}
+      # -- define scale up policies, must conform to HPAScalingRules
+      scaleUp: {}
+  image:
+    # -- The Docker registry for the query image. Overrides `prime.image.registry`
+    registry: ac-m2repo-prod.asset-control.com:5443
+    # -- Docker image repository for the query image. Overrides `prime.image.repository`
+    repository: prime/query-server
+    # -- Docker image tag for the query image. Overrides `prime.image.tag`
+    tag: 1.0.5
+  # -- Command to execute instead of defined in Docker image
+  command: null
+  # -- The name of the PriorityClass for query pods
+  priorityClassName: null
+  serviceAccount:
+    # -- Create query service account
+    create: false
+    # -- query service account name
+    name: prime
+    # -- Annotations applied to created service account
+    annotations: {}
+    # -- Automount API credentials for the Service Account
+    automountServiceAccountToken: true
+  # -- Labels for query pods
+  podLabels: {}
+  # -- Annotations for query pods
+  podAnnotations: {}
+  # -- Labels for ingestor service
+  serviceLabels: {}
+  # -- Additional CLI args for the query
+  extraArgs: []
+  # -- Environment variables to add to the query pods
+  extraEnv:
+    - name: INSTALLATION_NAME
+      value: "dev"
+    - name: DB_HOST
+      value: "postgresql-dev"
+    - name: DB_PORT
+      value: "5432"
+    - name: DB_NAME
+      value: "dev_prime_cloud_db"
+    - name: DB_USER
+      valueFrom:
+        secretKeyRef:
+          name: prime-cloud-secrets
+          key: username
+    - name: DB_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: prime-cloud-secrets
+          key: password
+    - name: AC_QRY_SVC_NAME
+      value: "prime-query-rpc"
+    - name: AC_UPD_SVC_NAME
+      value: "prime-update-rpc"
+    - name: AC_REP_SVC_NAME
+      value: "prime-replicator-rpc"
+    - name: NUM_THREADS
+      value: "4"
+    - name: NUM_DB_CONNECTIONS
+      value: "4"
+    - name: CASSANDRA_HOST
+      value: "cassandra-dev"
+    - name: CASSANDRA_PORT
+      value: "9042"
+    - name: CASSANDRA_USER
+      value: "bp+2-at-696513474302"
+    - name: CASSANDRA_PASSWORD
+      value: "K4ayQzQNoVLsjmJwMsvgDEmh8PnADmsWiIRDTlwqMfgCVoqgMF1e+yK5MsI="
+    - name: CASSANDRA_INSTALL_SCHEMA
+      value: "1"
+    - name: CASSANDRA_SSL
+      value: "1"
+    - name: CASSANDRA_SSL_CERTFILE
+      value: "/etc/ssl/certs/ca-bundle.crt"
+    - name: CASSANDRA_DC
+      value: "eu-west-1"
+    - name: CASSANDRA_AWS_KEYSPACES
+      value: "true"
+    - name: CASSANDRA_AWS_SIGV4
+      value: "false"
+    - name: CASSANDRA_WRITE_CONSISTENCY
+      value: "LOCAL_QUORUM"
+    - name: CASSANDRA_READ_CONSISTENCY
+      value: "LOCAL_QUORUM"
+    - name: TS_CASSANDRA_LOCK_MAX_WAIT_TIME
+      value: "60000"
+    - name: CASSANDRA_MAX_STATEMENTS_PER_BATCH
+      value: "29"
+    - name: TS_CASSANDRA_WRITE_CONSISTENCY
+      value: "LOCAL_QUORUM"
+    - name: TS_CASSANDRA_MAX_RETRIES
+      value: "3"
+    - name: TS_CASSANDRA_RETRIES_WAIT_TIME
+      value: "100"
+    - name: HDFS_LOG_HOST
+      value: "dev-hdfs-namenode"
+    - name: HDFS_USER
+      value: "stackable"
+    - name: HDFS_LOG_PORT
+      value: "8020"
+    - name: HDFS_ROOT
+      value: "/alveo/files/"
+    - name: HAZELCAST_HOST
+      value: "prime-cloud-hazelcast"
+    - name: HAZELCAST_CLUSTER
+      value: "hz-cluster"
+  # -- Environment variables from secrets or configmaps to add to the query pods
+  extraEnvFrom: []
+  # -- Volume mounts to add to the query pods
+  extraVolumeMounts: []
+  # -- Volumes to add to the query pods
+  extraVolumes: []
+  # -- Resource requests and limits for the query
+  resources: {}
+  # -- Containers to add to the query pods
+  extraContainers: []
+  # -- Init containers to add to the query pods
+  initContainers:
+    - name: init-prime
+      image: ac-m2repo-prod.asset-control.com:5443/prime/init-prime-server:1.0.2
+      env:
+        - name: INSTALLATION_NAME
+          value: dev
+        - name: DB_HOST
+          value: "postgres.poc.alveo-sandbox.net"
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_NAME
+          value: "prime"
+        - name: DB_USER
+          value: "prime"
+        - name: DB_PASSWORD
+          value: "password"
+        - name: CASSANDRA_HOST
+          value: "cassandra.eu-west-1.amazonaws.com"
+        - name: CASSANDRA_PORT
+          value: "9142"
+        - name: CASSANDRA_USER
+          value: "bp+2-at-696513474302"
+        - name: CASSANDRA_PASSWORD
+          value: "K4ayQzQNoVLsjmJwMsvgDEmh8PnADmsWiIRDTlwqMfgCVoqgMF1e+yK5MsI="
+        - name: CREATE_CASSANDRA_KEYSPACE
+          value: "1"
+        - name: CASSANDRA_INSTALL_SCHEMA
+          value: "1"
+        - name: CASSANDRA_SSL
+          value: "1"
+        - name: CASSANDRA_SSL_CERTFILE
+          value: "/etc/ssl/certs/ca-bundle.crt"
+        - name: CASSANDRA_DC
+          value: "eu-west-1"
+        - name: CASSANDRA_AWS_KEYSPACES
+          value: "true"
+        - name: CASSANDRA_AWS_SIGV4
+          value: "false"
+      volumeMounts:
+        - name: prime-server-license-volume
+          mountPath: /home/prime/config/license.txt
+          subPath: license.txt
+  # -- Grace period to allow the query to shutdown before it is killed. Especially for the ingestor,
+  # this must be increased. It must be long enough so querys can be gracefully shutdown flushing/transferring
+  # all data and to successfully leave the member ring on shutdown.
+  terminationGracePeriodSeconds: 300
+  # -- Lifecycle for the query container
+  lifecycle: {}
+  # -- topologySpread for query pods. Passed through `tpl` and, thus, to be configured as string
+  # @default -- Defaults to allow skew no more then 1 node per AZ
+  topologySpreadConstraints: |
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          {{- include "prime.querySelectorLabels" . | nindent 6 }}
+  # -- Affinity for query pods. Passed through `tpl` and, thus, to be configured as string
+  # @default -- Hard node and soft zone anti-affinity
+  affinity: |
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              {{- include "prime.querySelectorLabels" . | nindent 10 }}
+          topologyKey: kubernetes.io/hostname
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                {{- include "prime.querySelectorLabels" . | nindent 12 }}
+            topologyKey: failure-domain.beta.kubernetes.io/zone
+  # -- Pod Disruption Budget maxUnavailable
+  maxUnavailable: null
+  # -- Max Surge for query pods
+  maxSurge: 0
+  # -- Node selector for query pods
+  nodeSelector: {}
+  # -- Tolerations for query pods
+  tolerations: []
+  # -- readiness probe settings for query pods. If empty, use `prime.readinessProbe`
+  readinessProbe: {}
+  # -- liveness probe settings for query pods. If empty use `prime.livenessProbe`
+  livenessProbe: {}
+  persistence:
+    # -- Enable creating PVCs which is required when using boltdb-shipper
+    enabled: false
+    # -- Use emptyDir with ramdisk for storage. **Please note that all data in query will be lost on pod restart**
+    inMemory: false
+    # -- List of the query PVCs
+    # @notationType -- list
+    claims:
+      - name: data
+        size: 1Gi
+        #   -- Storage class to be used.
+        #   If defined, storageClassName: <storageClass>.
+        #   If set to "-", storageClassName: "", which disables dynamic provisioning.
+        #   If empty or set to null, no storageClassName spec is
+        #   set, choosing the default provisioner (gp2 on AWS, standard on GKE, AWS, and OpenStack).
+        storageClass: gp3
+        # - name: wal
+        #   size: 150Gi
+    # -- Enable StatefulSetAutoDeletePVC feature
+    enableStatefulSetAutoDeletePVC: false
+    whenDeleted: Retain
+    whenScaled: Retain
+  service:
+    # -- Ports of the query service    
+    ports:
+      - port: 9932
+        name: prime-query-rpc
+    # -- Type of the query service
+    type: ClusterIP
+    # -- ClusterIP of the query service
+    clusterIP: null
+    # -- Node port if service type is NodePort
+    nodePort: null
+    # -- Load balancer IPO address if service type is LoadBalancer
+    loadBalancerIP: null
+    # -- Load balancer allow traffic from CIDR list if service type is LoadBalancer
+    loadBalancerSourceRanges: []
+    # -- Annotations for the query service
+    annotations: {}
+    # -- Labels for query service
+    labels: {}
+# Update component settings
+# Configuration for the ingester
+update:
+  enabled: true
+  # -- Kind of deployment [StatefulSet/Deployment]
+  kind: StatefulSet
+  # -- Number of replicas for the update
+  replicas: 1
+  # -- hostAliases to add
+  hostAliases: []
+  #  - ip: 1.2.3.4
+  #    hostnames:
+  #      - domain.tld
+  autoscaling:
+    # -- Enable autoscaling for the update
+    enabled: false
+    # -- Minimum autoscaling replicas for the update
+    minReplicas: 1
+    # -- Maximum autoscaling replicas for the update
+    maxReplicas: 3
+    # -- Target CPU utilisation percentage for the update
+    targetCPUUtilizationPercentage: 60
+    # -- Target memory utilisation percentage for the update
+    targetMemoryUtilizationPercentage: null
+    # -- Allows one to define custom metrics using the HPA/v2 schema (for example, Pods, Object or External metrics)
+    customMetrics: []
+    # - type: Pods
+    #   pods:
+    #     metric:
+    #       name: prime_lines_total
+    #     target:
+    #       type: AverageValue
+    #       averageValue: 10k
+    behavior:
+      # -- Enable autoscaling behaviours
+      enabled: false
+      # -- define scale down policies, must conform to HPAScalingRules
+      scaleDown: {}
+      # -- define scale up policies, must conform to HPAScalingRules
+      scaleUp: {}
+  image:
+    # -- The Docker registry for the update image. Overrides `prime.image.registry`
+    registry: ac-m2repo-prod.asset-control.com:5443
+    # -- Docker image repository for the update image. Overrides `prime.image.repository`
+    repository: prime/update-server
+    # -- Docker image tag for the update image. Overrides `prime.image.tag`
+    tag: 1.0.5
+  # -- Command to execute instead of defined in Docker image
+  command: null
+  # -- The name of the PriorityClass for update pods
+  priorityClassName: null
+  # -- Labels for update pods
+  podLabels: {}
+  # -- Annotations for update pods
+  podAnnotations: {}
+  # -- Labels for ingestor service
+  serviceLabels: {}
+  serviceAccount:
+    # -- Create update service account
+    create: false
+    # -- update service account name
+    name: prime
+    # -- Annotations applied to created service account
+    annotations: {}
+    # -- Automount API credentials for the Service Account
+    automountServiceAccountToken: true
+  # -- Additional CLI args for the update
+  extraArgs: []
+  # -- Environment variables to add to the update pods
+  extraEnv:
+    - name: INSTALLATION_NAME
+      value: "dev"
+    - name: DB_HOST
+      value: "postgres.poc.alveo-sandbox.net"
+    - name: DB_PORT
+      value: "5432"
+    - name: DB_NAME
+      value: "prime"
+    - name: DB_USER
+      value: "prime"
+    - name: DB_PASSWORD
+      value: "password"
+    - name: AC_QRY_SVC_NAME
+      value: "prime-query-rpc"
+    - name: AC_UPD_SVC_NAME
+      value: "prime-update-rpc"
+    - name: AC_REP_SVC_NAME
+      value: "prime-replicator-rpc"
+    - name: NUM_THREADS
+      value: "4"
+    - name: NUM_DB_CONNECTIONS
+      value: "4"
+    - name: CASSANDRA_HOST
+      value: "cassandra.eu-west-1.amazonaws.com"
+    - name: CASSANDRA_PORT
+      value: "9142"
+    - name: CASSANDRA_USER
+      value: "bp+2-at-696513474302"
+    - name: CASSANDRA_PASSWORD
+      value: "K4ayQzQNoVLsjmJwMsvgDEmh8PnADmsWiIRDTlwqMfgCVoqgMF1e+yK5MsI="
+    - name: CASSANDRA_INSTALL_SCHEMA
+      value: "1"
+    - name: CASSANDRA_SSL
+      value: "1"
+    - name: CASSANDRA_SSL_CERTFILE
+      value: "/etc/ssl/certs/ca-bundle.crt"
+    - name: CASSANDRA_DC
+      value: "eu-west-1"
+    - name: CASSANDRA_AWS_KEYSPACES
+      value: "true"
+    - name: CASSANDRA_AWS_SIGV4
+      value: "false"
+    - name: CASSANDRA_WRITE_CONSISTENCY
+      value: "LOCAL_QUORUM"
+    - name: CASSANDRA_READ_CONSISTENCY
+      value: "LOCAL_QUORUM"
+    - name: TS_CASSANDRA_LOCK_MAX_WAIT_TIME
+      value: "60000"
+    - name: CASSANDRA_MAX_STATEMENTS_PER_BATCH
+      value: "29"
+    - name: TS_CASSANDRA_WRITE_CONSISTENCY
+      value: "LOCAL_QUORUM"
+    - name: TS_CASSANDRA_MAX_RETRIES
+      value: "3"
+    - name: TS_CASSANDRA_RETRIES_WAIT_TIME
+      value: "100"
+    - name: HDFS_LOG_HOST
+      value: "pcs-hdfs-namenode-default-0.pcs-hdfs-namenode-default"
+    - name: HDFS_USER
+      value: "stackable"
+    - name: HDFS_LOG_PORT
+      value: "8020"
+    - name: HDFS_ROOT
+      value: "/alveo/files/"
+    - name: HAZELCAST_HOST
+      value: "prime-cloud-hazelcast"
+    - name: HAZELCAST_CLUSTER
+      value: "hz-cluster"
+  # -- Environment variables from secrets or configmaps to add to the update pods
+  extraEnvFrom: []
+  # -- Volume mounts to add to the update pods
+  extraVolumeMounts: []
+  # -- Volumes to add to the update pods
+  extraVolumes: []
+  # -- Resource requests and limits for the update
+  resources: {}
+  # -- Containers to add to the update pods
+  extraContainers: []
+  # -- Init containers to add to the update pods
+  initContainers:
+    - name: init-prime
+      image: ac-m2repo-prod.asset-control.com:5443/prime/init-prime-server:1.0.5
+      env:
+        - name: INSTALLATION_NAME
+          value: dev
+        - name: DB_HOST
+          value: "postgres.poc.alveo-sandbox.net"
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_NAME
+          value: "prime"
+        - name: DB_USER
+          value: "prime"
+        - name: DB_PASSWORD
+          value: "password"
+        - name: CASSANDRA_HOST
+          value: "cassandra.eu-west-1.amazonaws.com"
+        - name: CASSANDRA_PORT
+          value: "9142"
+        - name: CASSANDRA_USER
+          value: "bp+2-at-696513474302"
+        - name: CASSANDRA_PASSWORD
+          value: "K4ayQzQNoVLsjmJwMsvgDEmh8PnADmsWiIRDTlwqMfgCVoqgMF1e+yK5MsI="
+        - name: CREATE_CASSANDRA_KEYSPACE
+          value: "1"
+        - name: CASSANDRA_INSTALL_SCHEMA
+          value: "1"
+        - name: CASSANDRA_SSL
+          value: "1"
+        - name: CASSANDRA_SSL_CERTFILE
+          value: "/etc/ssl/certs/ca-bundle.crt"
+        - name: CASSANDRA_DC
+          value: "eu-west-1"
+        - name: CASSANDRA_AWS_KEYSPACES
+          value: "true"
+        - name: CASSANDRA_AWS_SIGV4
+          value: "false"
+      volumeMounts:
+        - name: prime-server-license-volume
+          mountPath: /home/prime/config/license.txt
+          subPath: license.txt
+  # -- Grace period to allow the update to shutdown before it is killed. Especially for the ingestor,
+  # this must be increased. It must be long enough so updates can be gracefully shutdown flushing/transferring
+  # all data and to successfully leave the member ring on shutdown.
+  terminationGracePeriodSeconds: 300
+  # -- Lifecycle for the update container
+  lifecycle: {}
+  # -- topologySpread for update pods. Passed through `tpl` and, thus, to be configured as string
+  # @default -- Defaults to allow skew no more then 1 node per AZ
+  topologySpreadConstraints: |
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          {{- include "prime.updateSelectorLabels" . | nindent 6 }}
+  # -- Affinity for update pods. Passed through `tpl` and, thus, to be configured as string
+  # @default -- Hard node and soft zone anti-affinity
+  affinity: |
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              {{- include "prime.updateSelectorLabels" . | nindent 10 }}
+          topologyKey: kubernetes.io/hostname
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                {{- include "prime.updateSelectorLabels" . | nindent 12 }}
+            topologyKey: failure-domain.beta.kubernetes.io/zone
+  # -- Pod Disruption Budget maxUnavailable
+  maxUnavailable: null
+  # -- Max Surge for update pods
+  maxSurge: 0
+  # -- Node selector for update pods
+  nodeSelector: {}
+  # -- Tolerations for update pods
+  tolerations: []
+  # -- readiness probe settings for update pods. If empty, use `prime.readinessProbe`
+  readinessProbe: {}
+  # -- liveness probe settings for update pods. If empty use `prime.livenessProbe`
+  livenessProbe: {}
+  persistence:
+    # -- Enable creating PVCs which is required when using boltdb-shipper
+    enabled: false
+    # -- Use emptyDir with ramdisk for storage. **Please note that all data in update will be lost on pod restart**
+    inMemory: false
+    # -- List of the update PVCs
+    # @notationType -- list
+    claims:
+      - name: data
+        size: 1Gi
+        #   -- Storage class to be used.
+        #   If defined, storageClassName: <storageClass>.
+        #   If set to "-", storageClassName: "", which disables dynamic provisioning.
+        #   If empty or set to null, no storageClassName spec is
+        #   set, choosing the default provisioner (gp2 on AWS, standard on GKE, AWS, and OpenStack).
+        storageClass: null
+        # - name: wal
+        #   size: 150Gi
+    # -- Enable StatefulSetAutoDeletePVC feature
+    enableStatefulSetAutoDeletePVC: false
+    whenDeleted: Retain
+    whenScaled: Retain
+  service:
+    # -- Ports of the update service    
+    ports:
+      - port: 9931
+        name: prime-update-rpc
+    # -- Type of the update service
+    type: ClusterIP
+    # -- ClusterIP of the update service
+    clusterIP: null
+    # -- Node port if service type is NodePort
+    nodePort: null
+    # -- Load balancer IPO address if service type is LoadBalancer
+    loadBalancerIP: null
+    # -- Load balancer allow traffic from CIDR list if service type is LoadBalancer
+    loadBalancerSourceRanges: []
+    # -- Annotations for the update service
+    annotations: {}
+    # -- Labels for update service
+    labels: {}
+# Replicator component settings
+# Configuration for the ingester
+replicator:
+  enabled: true
+  # -- Kind of deployment [StatefulSet/Deployment]
+  kind: StatefulSet
+  # -- Number of replicas for the replicator
+  replicas: 1
+  # -- hostAliases to add
+  hostAliases: []
+  #  - ip: 1.2.3.4
+  #    hostnames:
+  #      - domain.tld
+  autoscaling:
+    # -- Enable autoscaling for the replicator
+    enabled: false
+    # -- Minimum autoscaling replicas for the replicator
+    minReplicas: 1
+    # -- Maximum autoscaling replicas for the replicator
+    maxReplicas: 3
+    # -- Target CPU utilisation percentage for the replicator
+    targetCPUUtilizationPercentage: 60
+    # -- Target memory utilisation percentage for the replicator
+    targetMemoryUtilizationPercentage: null
+    # -- Allows one to define custom metrics using the HPA/v2 schema (for example, Pods, Object or External metrics)
+    customMetrics: []
+    # - type: Pods
+    #   pods:
+    #     metric:
+    #       name: prime_lines_total
+    #     target:
+    #       type: AverageValue
+    #       averageValue: 10k
+    behavior:
+      # -- Enable autoscaling behaviours
+      enabled: false
+      # -- define scale down policies, must conform to HPAScalingRules
+      scaleDown: {}
+      # -- define scale up policies, must conform to HPAScalingRules
+      scaleUp: {}
+  image:
+    # -- The Docker registry for the replicator image. Overrides `prime.image.registry`
+    registry: ac-m2repo-prod.asset-control.com:5443
+    # -- Docker image repository for the replicator image. Overrides `prime.image.repository`
+    repository: prime/replicator-server
+    # -- Docker image tag for the replicator image. Overrides `prime.image.tag`
+    tag: 1.0.5
+  # -- Command to execute instead of defined in Docker image
+  command: null
+  # -- The name of the PriorityClass for replicator pods
+  priorityClassName: null
+  # -- Labels for replicator pods
+  podLabels: {}
+  # -- Annotations for replicator pods
+  podAnnotations: {}
+  serviceAccount:
+    # -- Create replicator service account
+    create: false
+    # -- replicator service account name
+    name: prime
+    # -- Annotations applied to created service account
+    annotations: {}
+    # -- Automount API credentials for the Service Account
+    automountServiceAccountToken: true
+  # -- Labels for ingestor service
+  serviceLabels: {}
+  # -- Additional CLI args for the replicator
+  extraArgs: []
+  # -- Environment variables to add to the replicator pods
+  extraEnv:
+    - name: INSTALLATION_NAME
+      value: "dev"
+    - name: DB_HOST
+      value: "postgres.poc.alveo-sandbox.net"
+    - name: DB_PORT
+      value: "5432"
+    - name: DB_NAME
+      value: "prime"
+    - name: DB_USER
+      value: "prime"
+    - name: DB_PASSWORD
+      value: "password"
+    - name: AC_QRY_SVC_NAME
+      value: "prime-query-rpc"
+    - name: AC_UPD_SVC_NAME
+      value: "prime-update-rpc"
+    - name: AC_REP_SVC_NAME
+      value: "prime-replicator-rpc"
+    - name: HDFS_LOG_HOST
+      value: "pcs-hdfs-namenode-default-0.pcs-hdfs-namenode-default"
+    - name: HDFS_USER
+      value: "stackable"
+    - name: HDFS_LOG_PORT
+      value: "8020"
+    - name: HDFS_ROOT
+      value: "/alveo/files/"
+  # -- Environment variables from secrets or configmaps to add to the replicator pods
+  extraEnvFrom: []
+  # -- Volume mounts to add to the replicator pods
+  extraVolumeMounts: []
+  # -- Volumes to add to the replicator pods
+  extraVolumes: []
+  # -- Resource requests and limits for the replicator
+  resources: {}
+  # -- Containers to add to the replicator pods
+  extraContainers: []
+  # -- Init containers to add to the replicator pods
+  initContainers: []
+  # -- Grace period to allow the replicator to shutdown before it is killed. Especially for the ingestor,
+  # this must be increased. It must be long enough so replicators can be gracefully shutdown flushing/transferring
+  # all data and to successfully leave the member ring on shutdown.
+  terminationGracePeriodSeconds: 300
+  # -- Lifecycle for the replicator container
+  lifecycle: {}
+  # -- topologySpread for replicator pods. Passed through `tpl` and, thus, to be configured as string
+  # @default -- Defaults to allow skew no more then 1 node per AZ
+  topologySpreadConstraints: |
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          {{- include "prime.replicatorSelectorLabels" . | nindent 6 }}
+  # -- Affinity for replicator pods. Passed through `tpl` and, thus, to be configured as string
+  # @default -- Hard node and soft zone anti-affinity
+  affinity: |
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              {{- include "prime.replicatorSelectorLabels" . | nindent 10 }}
+          topologyKey: kubernetes.io/hostname
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                {{- include "prime.replicatorSelectorLabels" . | nindent 12 }}
+            topologyKey: failure-domain.beta.kubernetes.io/zone
+  # -- Pod Disruption Budget maxUnavailable
+  maxUnavailable: null
+  # -- Max Surge for replicator pods
+  maxSurge: 0
+  # -- Node selector for replicator pods
+  nodeSelector: {}
+  # -- Tolerations for replicator pods
+  tolerations: []
+  # -- readiness probe settings for replicator pods. If empty, use `prime.readinessProbe`
+  readinessProbe: {}
+  # -- liveness probe settings for replicator pods. If empty use `prime.livenessProbe`
+  livenessProbe: {}
+  persistence:
+    # -- Enable creating PVCs which is required for Data Persistence of the replicator $AC_DATA_DIR
+    enabled: false
+    # -- Use emptyDir with ramdisk for storage. **Please note that all data in replicator will be lost on pod restart**
+    inMemory: false
+    # -- List of the replicator PVCs
+    # @notationType -- list
+    claims:
+      - name: data
+        size: 1Gi
+        #   -- Storage class to be used.
+        #   If defined, storageClassName: <storageClass>.
+        #   If set to "-", storageClassName: "", which disables dynamic provisioning.
+        #   If empty or set to null, no storageClassName spec is
+        #   set, choosing the default provisioner (gp2 on AWS, standard on GKE, AWS, and OpenStack).
+        storageClass: null
+        # - name: wal
+        #   size: 150Gi
+    # -- Enable StatefulSetAutoDeletePVC feature
+    enableStatefulSetAutoDeletePVC: false
+    whenDeleted: Retain
+    whenScaled: Retain
+  service:
+    # -- Ports of the replicator service    
+    ports:
+      - port: 9933
+        name: prime-replicator-rpc
+    # -- Type of the replicator service
+    type: ClusterIP
+    # -- ClusterIP of the replicator service
+    clusterIP: null
+    # -- Node port if service type is NodePort
+    nodePort: null
+    # -- Load balancer IPO address if service type is LoadBalancer
+    loadBalancerIP: null
+    # -- Load balancer allow traffic from CIDR list if service type is LoadBalancer
+    loadBalancerSourceRanges: []
+    # -- Annotations for the replicator service
+    annotations: {}
+    # -- Labels for replicator service
+    labels: {}
+## Extra manifests to deploy as an array
+extraManifests: []
+# - apiVersion: v1
+#   kind: ConfigMap
+#   metadata:
+#   labels:
+#     name: prometheus-extra
+#   data:
+#     extra-data: "value"

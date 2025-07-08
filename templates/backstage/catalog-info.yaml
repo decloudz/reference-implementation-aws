@@ -9,6 +9,28 @@ spec:
     - ./argo-workflows/template.yaml
     - ./app-with-bucket/template.yaml
     - ./ray-serve/template-ray-serve.yaml
+    - ./data-on-eks/template.yaml
+    - ./prime-cloud-services/template.yaml
+    - ./prime-edm-auth-service/template.yaml
+    - ./prime-edm-core-ui/template.yaml
+    - ./prime-edm-on-eks/template.yaml
+    - ./define-ansible-job/template.yaml
+    - ./postgres-database/template.yaml
+    - ./postgres-database-flexible/template.yaml
+    - ./database-request/template.yaml
+    - ./auth-service-database/template.yaml
+    - ./bdm-service-database/template.yaml
+    - ./loi-service-database/template.yaml
+    - ./issue-ingestion-service-database/template.yaml
+    - ./issue-service-database/template.yaml
+    - ./spreadsheets-service-database/template.yaml
+    - ./prime-cloud-database/template.yaml
+    - ./all-services-database/template.yaml
+    - ./kafka-cluster/template.yaml
+    - ./cassandra-cluster/template.yaml
+    - ./hdfs-cluster/template.yaml
+    - ./postgres-cluster/template.yaml
+
 ---
 apiVersion: backstage.io/v1alpha1
 kind: Location

@@ -75,7 +75,7 @@ backstage:
         - allow: [Component, System, API, Resource, Location, Template]
       locations:
         - type: url
-          target: https://github.com/punkwalker/reference-implementation-aws/blob/ref-impl-v2/templates/backstage/catalog-info.yaml
+          target: https://github.com/cnoe-io/reference-implementation-aws/blob/ref-impl-v2/templates/backstage/catalog-info.yaml
     kubernetes:
       serviceLocatorMethod:
         type: 'multiTenant'
@@ -95,7 +95,7 @@ postgresql:
       memory: 300Mi
   persistence:
     enabled: true
-    storageClass: gp2
+    storageClass: gp3
     size: 1Gi
   env:
     POSTGRES_USER: backstage

@@ -1,0 +1,172 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: {{ values.databaseName }}-{{ values.envName }}
+  title: PostgreSQL Database - {{ values.databaseName }}
+  description: |
+    PostgreSQL database {{ values.databaseName }} in {{ values.envName }} environment.
+    
+    **Deployment Type:** {{ values.deploymentType }}
+    **Database:** {{ values.databaseName }}
+    **Environment:** {{ values.envName }}
+    **Namespace:** {{ values.namespace }}
+    
+    {% if values.deploymentType == "bitnami-helm" %}
+    **Configuration:**
+    - PostgreSQL Version: {{ values.bitnamiPostgresVersion }}
+    - Architecture: {{ values.bitnamiArchitecture }}
+    - Storage: {{ values.bitnamiStorageSize }}
+    {% elif values.deploymentType == "cloudnative-operator" %}
+    **Configuration:**
+    - CloudNativePG Cluster: {{ values.cnpgClusterName }}
+    - Cluster Namespace: {{ values.cnpgClusterNamespace }}
+    {% elif values.deploymentType == "external-database" or values.deploymentType == "database-setup-only" %}
+    **Configuration:**
+    - Host: {{ values.externalHost }}
+    - Port: {{ values.externalPort }}
+    - SSL: {{ "Enabled" if values.externalSSL else "Disabled" }}
+    {% endif %}
+  annotations:
+    backstage.io/kubernetes-id: {{ values.databaseName }}-{{ values.envName }}
+    backstage.io/kubernetes-namespace: {{ values.namespace }}
+    argocd/app-name: {{ values.repoName }}
+    backstage.io/source-location: url:https://cnoe.localtest.me:8443/gitea/giteaAdmin/{{ values.repoName }}
+  tags:
+    - postgresql
+    - database
+    - {{ values.envName }}
+    - {{ values.deploymentType }}
+  links:
+    - url: https://cnoe.localtest.me:8443/argocd/applications/argocd/{{ values.repoName }}
+      title: ArgoCD Application
+      icon: deployment
+    - url: https://cnoe.localtest.me:8443/gitea/giteaAdmin/{{ values.repoName }}
+      title: Configuration Repository
+      icon: github
+spec:
+  type: database
+  lifecycle: experimental
+  owner: platform-team
+  system: data-infrastructure
+  providesApis:
+    - {{ values.databaseName }}-{{ values.envName }}-api
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: {{ values.databaseName }}-{{ values.envName }}-api
+  title: PostgreSQL Database API - {{ values.databaseName }}
+  description: PostgreSQL database API for {{ values.databaseName }} in {{ values.envName }}
+  tags:
+    - postgresql
+    - database
+    - sql
+    - {{ values.envName }}
+spec:
+  type: database
+  lifecycle: experimental
+  owner: platform-team
+  system: data-infrastructure
+  definition: |
+    # PostgreSQL Database: {{ values.databaseName }}
+    
+    ## Connection Details
+    
+    {% if values.deploymentType == "bitnami-helm" %}
+    ### Bitnami PostgreSQL Connection
+    ```
+    Host: {{ values.databaseName }}-postgresql.{{ values.namespace }}.svc.cluster.local
+    Port: 5432
+    Database: {{ values.databaseName }}
+    {% if values.createDatabaseUser %}User: {{ values.databaseUser }}{% endif %}
+    Password: <from secret {{ values.databaseName }}-postgresql>
+    ```
+    {% elif values.deploymentType == "cloudnative-operator" %}
+    ### CloudNativePG Connection
+    ```
+    Host: {{ values.cnpgClusterName }}-rw.{{ values.cnpgClusterNamespace }}.svc.cluster.local
+    Port: 5432
+    Database: {{ values.databaseName }}
+    {% if values.createDatabaseUser %}User: {{ values.databaseUser }}{% endif %}
+    Password: <from secret {{ values.secretName }}>
+    ```
+    {% elif values.deploymentType == "external-database" or values.deploymentType == "database-setup-only" %}
+    ### External PostgreSQL Connection
+    ```
+    Host: {{ values.externalHost }}
+    Port: {{ values.externalPort }}
+    Database: {{ values.databaseName }}
+    {% if values.createDatabaseUser %}User: {{ values.databaseUser }}{% endif %}
+    Password: <from secret {{ values.secretName }}>
+    {% if values.externalSSL %}SSL: Required{% endif %}
+    ```
+    {% endif %}
+    
+    ## Configuration
+    - **Database Name**: {{ values.databaseName }}
+    - **Environment**: {{ values.envName }}
+    - **Deployment Type**: {{ values.deploymentType }}
+    - **Namespace**: {{ values.namespace }}
+    {% if values.createDatabaseUser %}- **Database User**: {{ values.databaseUser }}
+    - **User Privileges**: {{ values.userPrivileges }}{% endif %}
+    
+    ## Kubernetes Secrets
+    {% if values.createSecret %}
+    ### Connection Credentials
+    Secret: `{{ values.secretName }}`
+    - `host`: Database host
+    - `port`: Database port
+    - `database`: Database name
+    - `username`: Database user
+    - `password`: Database password
+    {% if values.externalSSL and (values.deploymentType == "external-database" or values.deploymentType == "database-setup-only") %}- `sslmode`: SSL mode{% endif %}
+    
+    ### Connection String
+    Secret: `{{ values.secretName }}-connection`
+    - `connection-string`: Full PostgreSQL connection string
+    {% endif %}
+    
+    ## Environment Variables Example
+    ```bash
+    {% if values.deploymentType == "bitnami-helm" %}
+    POSTGRES_HOST={{ values.databaseName }}-postgresql.{{ values.namespace }}.svc.cluster.local
+    {% elif values.deploymentType == "cloudnative-operator" %}
+    POSTGRES_HOST={{ values.cnpgClusterName }}-rw.{{ values.cnpgClusterNamespace }}.svc.cluster.local
+    {% elif values.deploymentType == "external-database" or values.deploymentType == "database-setup-only" %}
+    POSTGRES_HOST={{ values.externalHost }}
+    {% endif %}
+    POSTGRES_PORT={% if values.deploymentType == "external-database" or values.deploymentType == "database-setup-only" %}{{ values.externalPort }}{% else %}5432{% endif %}
+    POSTGRES_DB={{ values.databaseName }}
+    {% if values.createDatabaseUser %}POSTGRES_USER={{ values.databaseUser }}{% endif %}
+    POSTGRES_PASSWORD=<from-secret>
+    ```
+    
+    ## Health Check
+    ```sql
+    SELECT 1;
+    SELECT current_database();
+    SELECT current_user;
+    ```
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: {{ values.databaseName }}-{{ values.envName }}-database
+  title: PostgreSQL Database Resource - {{ values.databaseName }}
+  description: PostgreSQL database resource in {{ values.envName }} environment
+  annotations:
+    backstage.io/kubernetes-id: {{ values.databaseName }}-{{ values.envName }}
+    backstage.io/kubernetes-namespace: {{ values.namespace }}
+  tags:
+    - postgresql
+    - database
+    - {{ values.deploymentType }}
+    - {{ values.envName }}
+spec:
+  type: database-instance
+  owner: platform-team
+  system: data-infrastructure
+  dependsOn:
+    - component:default/{{ values.databaseName }}-{{ values.envName }}

@@ -1,0 +1,397 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: request-hdfs-cluster
+  title: Request HDFS Cluster
+  description: |
+    Request a new Apache Hadoop HDFS cluster using Stackable operators.
+    
+    Creates:
+    - High-availability HDFS cluster with configurable name and data nodes
+    - ZooKeeper ensemble for coordination and metadata
+    - Journal nodes for shared storage in HA setup
+    - Persistent storage for distributed file system
+    - Configurable replication factor and block size
+    - Monitoring and logging integration
+  
+spec:
+  owner: platform-team
+  type: data-infrastructure
+  parameters:
+    - title: Cluster Information
+      required: [clusterName, envName]
+      properties:
+        clusterName:
+          type: string
+          description: HDFS cluster name
+          pattern: '^[a-z][a-z0-9-]*[a-z0-9]$'
+          ui:help: 'Cluster name (lowercase, alphanumeric, hyphens, must start with letter)'
+        envName:
+          type: string
+          description: Environment for the HDFS cluster
+          enum:
+            - dev
+            - staging
+            - prod
+          ui:help: 'Target environment for the HDFS cluster'
+        namespace:
+          type: string
+          description: Kubernetes namespace for the cluster
+          default: ${{ parameters.envName }}
+          ui:help: 'Namespace where HDFS cluster will be deployed'
+
+    - title: HDFS Configuration
+      properties:
+        hdfsVersion:
+          type: string
+          description: HDFS version
+          default: "3.3.6"
+          enum:
+            - "3.3.6"
+            - "3.3.4"
+            - "3.2.4"
+          ui:help: 'Apache Hadoop HDFS version to deploy'
+        nameNodeReplicas:
+          type: integer
+          description: Number of NameNode replicas
+          default: 2
+          minimum: 2
+          maximum: 3
+          ui:help: 'Number of NameNode replicas (2+ required for HA with Stackable operator)'
+        dataNodeReplicas:
+          type: integer
+          description: Number of DataNode replicas
+          default: 1
+          minimum: 1
+          maximum: 9
+          ui:help: 'Number of DataNode replicas (1 for local dev, 3+ for production)'
+        journalNodeReplicas:
+          type: integer
+          description: Number of JournalNode replicas
+          default: 3
+          minimum: 1
+          maximum: 5
+          ui:help: 'Number of JournalNode replicas (3+ odd number recommended for HA)'
+
+    - title: Storage Configuration
+      properties:
+        dataNodeStorageSize:
+          type: string
+          description: Storage size per DataNode
+          default: "10Gi"
+          enum:
+            - "5Gi"
+            - "10Gi"
+            - "20Gi"
+            - "50Gi"
+            - "100Gi"
+            - "200Gi"
+            - "500Gi"
+            - "1Ti"
+          ui:help: 'Persistent storage size for each DataNode'
+        storageClass:
+          type: string
+          description: Storage class for persistent volumes
+          default: "standard"
+          ui:help: 'Kubernetes storage class for persistent volumes'
+
+    - title: HDFS Settings
+      properties:
+        dfsReplication:
+          type: integer
+          description: Default replication factor
+          default: 1
+          minimum: 1
+          maximum: 9
+          ui:help: 'Default replication factor for HDFS files (1 for local dev)'
+        dfsBlockSize:
+          type: string
+          description: Default block size
+          default: "128m"
+          enum:
+            - "64m"
+            - "128m"
+            - "256m"
+            - "512m"
+          ui:help: 'Default block size for HDFS files'
+
+    - title: Resource Configuration
+      properties:
+        nameNodeCpu:
+          type: string
+          description: CPU limit for NameNodes
+          default: "300m"
+          enum:
+            - "200m"
+            - "300m"
+            - "500m"
+            - "1000m"
+          ui:help: 'CPU limit for each NameNode'
+        nameNodeMemory:
+          type: string
+          description: Memory limit for NameNodes
+          default: "512Mi"
+          enum:
+            - "384Mi"
+            - "512Mi"
+            - "1Gi"
+            - "2Gi"
+          ui:help: 'Memory limit for each NameNode'
+        dataNodeCpu:
+          type: string
+          description: CPU limit for DataNodes
+          default: "300m"
+          enum:
+            - "200m"
+            - "300m"
+            - "500m"
+            - "1000m"
+          ui:help: 'CPU limit for each DataNode'
+        dataNodeMemory:
+          type: string
+          description: Memory limit for DataNodes
+          default: "512Mi"
+          enum:
+            - "384Mi"
+            - "512Mi"
+            - "1Gi"
+            - "2Gi"
+          ui:help: 'Memory limit for each DataNode'
+
+    - title: ZooKeeper Configuration
+      properties:
+        zookeeperReplicas:
+          type: integer
+          description: Number of ZooKeeper nodes
+          default: 1
+          minimum: 1
+          maximum: 5
+          ui:help: 'Number of ZooKeeper replicas (1 for local dev, 3+ for production)'
+        zookeeperVersion:
+          type: string
+          description: ZooKeeper version
+          default: "3.9.1"
+          enum:
+            - "3.9.1"
+            - "3.8.3"
+          ui:help: 'Apache ZooKeeper version for coordination'
+
+    - title: Namespace Configuration
+      properties:
+        createNamespace:
+          type: boolean
+          title: Create new namespace
+          description: Create a new namespace for the cluster
+          default: false
+          ui:help: 'Enable if you want to create a new namespace, disable to use existing namespace'
+
+    - title: Advanced Options
+      properties:
+        enableLogging:
+          type: boolean
+          title: Enable advanced logging
+          description: Enable Vector agent for log collection
+          default: false
+          ui:help: 'Enable Vector agent for centralized logging'
+
+  steps:
+    # Step 1: Debug parameters
+    - id: debug-params
+      name: Debug Template Parameters
+      action: debug:log
+      input:
+        message: |
+          📋 HDFS Cluster Request Parameters:
+          - Cluster Name: '${{ parameters.clusterName }}'
+          - Environment: '${{ parameters.envName }}'
+          - Namespace: '${{ parameters.namespace }}'
+          - HDFS Version: '${{ parameters.hdfsVersion }}'
+          - NameNode Replicas: ${{ parameters.nameNodeReplicas }}
+          - DataNode Replicas: ${{ parameters.dataNodeReplicas }}
+          - JournalNode Replicas: ${{ parameters.journalNodeReplicas }}
+          - DataNode Storage: ${{ parameters.dataNodeStorageSize }}
+          - Replication Factor: ${{ parameters.dfsReplication }}
+          - ZooKeeper Replicas: ${{ parameters.zookeeperReplicas }}
+
+    # Step 2: Generate HDFS cluster manifests
+    - id: create-hdfs-manifests
+      name: Generate HDFS Cluster Manifests
+      action: fetch:template
+      input:
+        url: ./skeleton/manifests
+        targetPath: ./manifests
+        values:
+          clusterName: ${{ parameters.clusterName }}
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          createNamespace: ${{ parameters.createNamespace }}
+          hdfsVersion: ${{ parameters.hdfsVersion }}
+          nameNodeReplicas: ${{ parameters.nameNodeReplicas }}
+          dataNodeReplicas: ${{ parameters.dataNodeReplicas }}
+          journalNodeReplicas: ${{ parameters.journalNodeReplicas }}
+          dataNodeStorageSize: ${{ parameters.dataNodeStorageSize }}
+          storageClass: ${{ parameters.storageClass }}
+          dfsReplication: ${{ parameters.dfsReplication }}
+          dfsBlockSize: ${{ parameters.dfsBlockSize }}
+          nameNodeCpu: ${{ parameters.nameNodeCpu }}
+          nameNodeMemory: ${{ parameters.nameNodeMemory }}
+          dataNodeCpu: ${{ parameters.dataNodeCpu }}
+          dataNodeMemory: ${{ parameters.dataNodeMemory }}
+          zookeeperReplicas: ${{ parameters.zookeeperReplicas }}
+          zookeeperVersion: ${{ parameters.zookeeperVersion }}
+          enableLogging: ${{ parameters.enableLogging }}
+
+    # Step 3: Generate catalog information
+    - id: fetch-catalog
+      name: Generate Catalog Info
+      action: fetch:template
+      input:
+        url: ./catalog-template
+        values:
+          clusterName: ${{ parameters.clusterName }}
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          hdfsVersion: ${{ parameters.hdfsVersion }}
+          nameNodeReplicas: ${{ parameters.nameNodeReplicas }}
+          dataNodeReplicas: ${{ parameters.dataNodeReplicas }}
+          journalNodeReplicas: ${{ parameters.journalNodeReplicas }}
+
+    # Step 4: Create repository with HDFS configuration
+    - id: publish-config
+      name: Create Repository with HDFS Configuration
+      action: publish:gitea
+      input:
+        description: HDFS cluster ${{ parameters.clusterName }} configuration for ${{ parameters.envName }}
+        repoUrl: cnoe.localtest.me:8443/gitea?repo=hdfs-${{ parameters.clusterName }}-${{ parameters.envName }}
+        defaultBranch: main
+
+    # Step 5: Register in catalog
+    - id: register
+      name: Register Component in Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish-config'].output.repoContentsUrl }}
+        catalogInfoPath: '/catalog-info.yaml'
+        optional: true
+
+    # Step 6: Create ArgoCD Application for HDFS Cluster
+    - id: create-argocd-app
+      name: Create ArgoCD Application for HDFS Cluster
+      action: cnoe:create-argocd-app
+      input:
+        appName: hdfs-${{ parameters.clusterName }}-${{ parameters.envName }}
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        repoUrl: https://cnoe.localtest.me:8443/gitea/giteaAdmin/hdfs-${{ parameters.clusterName }}-${{ parameters.envName }}
+        path: manifests
+        targetRevision: main
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.namespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+
+    # Step 7: Wait for ArgoCD to sync
+    - id: wait-for-sync
+      name: Wait for ArgoCD Application Sync
+      action: debug:wait
+      input:
+        seconds: 30
+
+    # Step 8: Validate cluster deployment
+    - id: validate-cluster
+      name: Validate HDFS Cluster Deployment
+      action: debug:log
+      input:
+        message: |
+          🎉 **HDFS Cluster Deployment Initiated!**
+          
+          ## ✅ What was created:
+          
+          📁 **Repository**: hdfs-${{ parameters.clusterName }}-${{ parameters.envName }}
+          🚀 **ArgoCD App**: hdfs-${{ parameters.clusterName }}-${{ parameters.envName }}
+          📋 **Catalog Component**: hdfs-${{ parameters.clusterName }}-${{ parameters.envName }}
+          🌍 **Environment**: ${{ parameters.envName }}
+          📦 **Namespace**: ${{ parameters.namespace }}
+          
+          ## 🔧 Cluster Configuration:
+          
+          - **Cluster Name**: ${{ parameters.clusterName }}
+          - **HDFS Version**: ${{ parameters.hdfsVersion }}
+          - **NameNode Replicas**: ${{ parameters.nameNodeReplicas }}
+          - **DataNode Replicas**: ${{ parameters.dataNodeReplicas }}
+          - **JournalNode Replicas**: ${{ parameters.journalNodeReplicas }}
+          - **Storage per DataNode**: ${{ parameters.dataNodeStorageSize }}
+          - **Replication Factor**: ${{ parameters.dfsReplication }}
+          - **Block Size**: ${{ parameters.dfsBlockSize }}
+          
+          ## 🔄 AUTOMATED DEPLOYMENT IN PROGRESS:
+          
+          ArgoCD is automatically deploying your HDFS cluster!
+          
+          ### Monitor Progress:
+          - [HDFS Cluster ArgoCD App](https://cnoe.localtest.me:8443/argocd/applications/argocd/hdfs-${{ parameters.clusterName }}-${{ parameters.envName }})
+          
+          ### Check Cluster Status (usually takes 15-20 minutes):
+          ```bash
+          kubectl get hdfscluster ${{ parameters.clusterName }} -n ${{ parameters.namespace }}
+          kubectl get pods -n ${{ parameters.namespace }}
+          ```
+          
+          ### Access HDFS Services:
+          - **NameNode UI**: ${{ parameters.clusterName }}-namenode-default.${{ parameters.namespace }}.svc.cluster.local:9870
+          - **HDFS API**: ${{ parameters.clusterName }}-namenode-default.${{ parameters.namespace }}.svc.cluster.local:9820
+          - **DataNode UI**: ${{ parameters.clusterName }}-datanode-default.${{ parameters.namespace }}.svc.cluster.local:9864
+          
+          ## 🎯 Next Steps:
+          
+          1. **Monitor ArgoCD Application**: Check deployment progress in ArgoCD
+          2. **Wait for Cluster Ready**: Usually takes 15-20 minutes for full deployment
+          3. **Create Directories**: Set up your HDFS directory structure
+          4. **Connect Applications**: Use HDFS client or WebHDFS API for access
+          
+          ## 🔐 Security Notes:
+          
+          - HDFS security is configured with default settings
+          - NameNode HA is enabled with shared storage via JournalNodes
+          - Data replication factor is set to ${{ parameters.dfsReplication }}
+          - ZooKeeper provides coordination for automatic failover
+
+  output:
+    links:
+      - title: HDFS Cluster ArgoCD App
+        url: https://cnoe.localtest.me:8443/argocd/applications/argocd/hdfs-${{ parameters.clusterName }}-${{ parameters.envName }}
+      - title: HDFS Configuration Repository
+        url: https://cnoe.localtest.me:8443/gitea/giteaAdmin/hdfs-${{ parameters.clusterName }}-${{ parameters.envName }}
+      - title: HDFS Cluster Component
+        icon: catalog
+        entityRef: component:default/hdfs-${{ parameters.clusterName }}-${{ parameters.envName }}
+    text:
+      - title: HDFS Cluster Request Summary
+        content: |
+          Your HDFS cluster has been requested!
+          
+          ## ✅ Cluster Details:
+          
+          - **Cluster**: ${{ parameters.clusterName }}
+          - **Environment**: ${{ parameters.envName }}
+          - **Namespace**: ${{ parameters.namespace }}
+          - **NameNodes**: ${{ parameters.nameNodeReplicas }}
+          - **DataNodes**: ${{ parameters.dataNodeReplicas }}
+          - **Version**: ${{ parameters.hdfsVersion }}
+          
+          ## 🔄 Next Steps:
+          
+          1. **Monitor Deployment**: Check ArgoCD application progress
+          2. **Wait for Ready State**: Cluster deployment takes 15-20 minutes
+          3. **Create Directories**: Set up your HDFS directory structure
+          4. **Connect Applications**: Use HDFS clients for data access
+          
+          ## 📞 Support:
+          
+          If you encounter issues, contact the platform team or check the ArgoCD application logs.

@@ -1,0 +1,6 @@
+site_name: 'SDLC Application'
+nav:
+  - Home: index.md
+  - idpBuilder: idpbuilder.md
+plugins:
+  - techdocs-core

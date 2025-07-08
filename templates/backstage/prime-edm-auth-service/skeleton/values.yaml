@@ -1,0 +1,168 @@
+# ================================================================
+# Auth Service Configuration Values
+# ================================================================
+#
+# This file contains the values for the auth-service Helm chart.
+# The chart templates come from the external repo: ${{ chartRepo }}
+#
+# IMPORTANT:
+# - Do NOT add Helm chart templates to this repository
+# - Only customize values in this file
+# - Do NOT create a templates/ directory
+#
+# Environment: ${{ envName }}
+# ================================================================
+
+# Auth Service Configuration for ${{ envName }} environment
+# Modify these values for GitOps deployment changes
+
+# Application Image
+image:
+  registry: "ac-m2repo-prod.asset-control.com:5443"
+  name: authentication-service
+  tag: ${{ imageTag }}
+  pullPolicy: Always
+  port: 9000
+  args: ["-Dplay.http.context=/"]
+
+# Service Configuration
+serviceMemory: 2G
+serviceConfigPath: "/opt/docker/conf/load"
+
+# Environment-specific settings
+namespace: ${{ namespace }}
+
+# Security Configuration
+keystoreEnabled: true
+authEnabled: true
+secretName: auth-service-secrets
+
+# Container Environment Variables
+containerEnvs:
+  - name: PASSWORD_STRENGTH_CHECK_ENABLED
+    value: "true"
+  - name: BDMS_BASE_URL
+    value: "bdms-service.${{ namespace }}.svc.cluster.local:6969"
+  - name: DB_URL
+    valueFrom:
+      secretKeyRef:
+        name: auth-service-secrets
+        key: POSTGRES_URL
+  - name: DB_USER
+    valueFrom:
+      secretKeyRef:
+        name: auth-service-secrets
+        key: POSTGRES_USERNAME
+  - name: DB_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: auth-service-secrets
+        key: POSTGRES_PASSWORD
+  - name: KEYSTORE_FILE
+    value: "/opt/docker/conf/external/keystore.jks"
+
+# Service Account Configuration  
+serviceAccountName: auth-service-sa
+serviceAccountRoleArn: "arn:aws:iam::696513474302:role/secrets-csi-role"
+
+# Secret Store Configuration
+secretStoreName: "${{ envName }}-auth-secret-store"
+awsRegion: "us-east-1"
+externalSecretName: "${{ envName }}-auth-secret"
+
+# AWS Secrets Manager Configuration
+secman_name: "${{ envName }}/ops360/auth-service"
+
+# Vault/CSI Driver Configuration
+vault:
+  keystoreSecretName: auth-service-keystore-secrets
+  secrets:
+    - objectName: "arn:aws:secretsmanager:us-east-1:696513474302:secret:${{ envName }}/ops360/auth-service-guKEPM"
+      objectType: "secretsmanager"
+      objectVersionLabel: "AWSCURRENT"
+      jmesPath:
+        - path: "POSTGRES_USERNAME"
+          objectAlias: "POSTGRES_USERNAME"
+        - path: "POSTGRES_PASSWORD"
+          objectAlias: "POSTGRES_PASSWORD"
+        - path: "POSTGRES_DATABASE"
+          objectAlias: "POSTGRES_DATABASE"
+        - path: "POSTGRES_HOST"
+          objectAlias: "POSTGRES_HOST"
+        - path: "POSTGRES_PORT"
+          objectAlias: "POSTGRES_PORT"
+        - path: "POSTGRES_URL"
+          objectAlias: "POSTGRES_URL"
+
+# Service Configuration
+service:
+  type: ClusterIP
+  port: 9000
+ingress:
+  enabled: true
+  className: ""
+  domain: domain.example.com
+  prefix: /auth(/|$)(.*)
+  pathType: ImplementationSpecific
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: 200m
+    nginx.ingress.kubernetes.io/server-snippet: |-
+      add_header X-Request-ID $request_id;
+      keepalive_timeout 70;
+      underscores_in_headers on;
+      proxy_http_version 1.1;
+      client_max_body_size 0;
+      client_header_buffer_size 4096k;
+      large_client_header_buffers 4 8096k;
+      gzip  on;
+      gzip_types
+        text/css
+        text/javascript
+        text/xml
+        text/plain
+        application/javascript
+        application/x-javascript
+        application/json;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "Upgrade";
+    nginx.ingress.kubernetes.io/configuration-snippet: |-
+      more_set_headers "Cache-Control: no-cache";
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "24576k"
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 200M
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+resources: {}
+# We usually recommend not to specify default resources and to leave this as a conscious
+# choice for the user. This also increases chances charts run on environments with little
+# resources, such as Minikube. If you do want to specify resources, uncomment the following
+# lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+# limits:
+#   cpu: 100m
+#   memory: 128Mi
+# requests:
+#   cpu: 100m
+#   memory: 128Mi
+
+replicaCount: 1
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 1
+  targetCPUUtilizationPercentage: 0
+  targetMemoryUtilizationPercentage: 0
+nodeSelector: {}
+tolerations: []
+affinity: {}
+## Extra manifests to deploy as an array
+extraManifests: []
+# - apiVersion: v1
+#   kind: ConfigMap
+#   metadata:
+#   labels:
+#     name: prometheus-extra
+#   data:
+#     extra-data: "value"
