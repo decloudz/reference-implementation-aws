@@ -13,20 +13,159 @@ This project contains a [CNOE](https://cnoe.io) reference implementation for AWS
 
 All the addons are helm charts with static values configured in `packages/<addon-name>/values.yaml` and dynamic values based on Argo CD cluster secret label/annotations values in `packages/addons/values.yaml`. 
 
-| Name | Namespace | Purpose | Version | Chart |
+| Name | Namespace | Purpose | Chart Version | Chart |
 | ---------- | ---------- | ---------- | ---------- | ---------- | 
-| Argo CD | argocd | Installation and management of addon Argo CD application | Version | Chart |
-| Argo Workflows | argo | Workflow tool for continuous integration tasks  | Version | Chart |
-| Backstage | backstage | Self-Service Web UI (Developer Portal) for developers | Version | [CNOE Chart](packages/backstage/chart) |
-| Cert Manager | cert-manager | Certificate managed for addons and developer applications using Lets Enctrypt | Version | Chart |
-| Crossplane | crossplane-system | IaC controller for provisiong infrastructure  | Version | Chart |
-| External DNS | external-dns | Domain management using Route 53 | Version | Chart |
-| External Secrets | external-secrets | Secret Management using AWS Secret Manager and AWS Systems Manager Parameter Store  | Version | Chart |
-| Ingress NGINX | ingress-nginx | Ingress controller for L7 network traffic routing  | Version | Chart |
-| Keycloak | keycloak | Identity provider for User Authentication | Version | Chart |
+| Argo CD | argocd | Installation and management of addon Argo CD application | 8.0.14 | [Link](https://github.com/argoproj/argo-helm/tree/main/charts/argo-cd) |
+| Argo Workflows | argo | Workflow tool for continuous integration tasks  | 0.45.18 | [Link](https://github.com/argoproj/argo-helm/tree/main/charts/argo-workflows )|
+| Backstage | backstage | Self-Service Web UI (Developer Portal) for developers | 0.1.0 | [Link](packages/backstage/chart) |
+| Cert Manager | cert-manager | Certificate managed for addons and developer applications using Lets Enctrypt | 1.17.2 | [Link](https://cert-manager.io/docs/installation/helm/) |
+| Crossplane | crossplane-system | IaC controller for provisiong infrastructure  | 1.20.0 | [Link](https://github.com/crossplane/crossplane/tree/main/cluster/charts/crossplane) |
+| External DNS | external-dns | Domain management using Route 53 | 1.16.1 | [Link](https://github.com/kubernetes-sigs/external-dns/tree/master/charts/external-dns) |
+| External Secrets | external-secrets | Secret Management using AWS Secret Manager and AWS Systems Manager Parameter Store  | Version | [Link](https://github.com/external-secrets/external-secrets/tree/main/deploy/charts/external-secrets) |
+| Ingress NGINX | ingress-nginx | Ingress controller for L7 network traffic routing  | 4.7.0 | [Link](https://github.com/kubernetes/ingress-nginx/tree/main/charts/ingress-nginx) |
+| Keycloak | keycloak | Identity provider for User Authentication | 24.7.3 | [Link](https://github.com/bitnami/charts/tree/main/bitnami/keycloak) |
 
 Check out more details about the [installation flow](docs/installation_flow.md).
  
+## Installation Flow Diagram
+This diagram illustrates the high-level installation flow for the CNOE AWS Reference Implementation. It shows how the local environment interacts with AWS resources to deploy and configure the platform on an EKS cluster.
+
++ **Using plain shell script**
+```mermaid
+flowchart TD
+    subgraph "Local Environment"
+        config["config.yaml"]
+        secrets["GitHub App Credentials
+        (private/*.yaml)"]
+        create_secrets["create-config-secrets.sh"]
+        install["install-using-idpbuilder.sh"]
+        helm["helm"]
+    end
+
+    subgraph "AWS"
+        aws_secrets["AWS Secrets Manager
+        - cnoe-ref-impl/config
+        - cnoe-ref-impl/github-app"]
+        
+        subgraph "EKS Cluster"
+            eks_argocd["Argo CD"]
+            eso["External Secret Operator"]
+            appset["addons-appset
+            (ApplicationSet)"]
+            
+            subgraph "Addons"
+                backstage["Backstage"]
+                keycloak["Keycloak"]
+                crossplane["Crossplane"]
+                cert_manager["Cert Manager"]
+                external_dns["External DNS"]
+                ingress["Ingress NGINX"]
+                argo_workflows["Argo Workflows"]
+            end
+        end
+    end
+
+    config --> create_secrets
+    secrets --> create_secrets
+    create_secrets --> aws_secrets
+    
+    config --> install
+    install --> helm
+    
+    helm -- "Installs" --> eks_argocd
+    helm -- "Installs" --> eso
+    helm -- "Creates" --> appset
+    
+    aws_secrets -- "Provides configuration" --> eso
+    
+    appset -- "Creates Argo CD Addon ApplicationSets" --> Addons
+    
+    eks_argocd -- "Manages" --> Addons
+    eso -- "Provides secrets to" --> Addons
+    
+    classDef aws fill:#FF9900,stroke:#232F3E,color:white;
+    classDef k8s fill:#326CE5,stroke:#254AA5,color:white;
+    classDef tools fill:#4CAF50,stroke:#388E3C,color:white;
+    classDef config fill:#9C27B0,stroke:#7B1FA2,color:white;
+    
+    class aws_secrets,EKS aws;
+    class eks_argocd,eso,appset,backstage,keycloak,crossplane,cert_manager,external_dns,ingress,argo_workflows k8s;
+    class helm,install,create_secrets tools;
+    class config,secrets config;
+```
+
++ **Using `idpbuilder`**
+```mermaid
+flowchart TD
+    subgraph "Local Environment"
+        config["config.yaml"]
+        secrets["GitHub App Credentials
+        (private/*.yaml)"]
+        create_secrets["create-config-secrets.sh"]
+        install["install-using-idpbuilder.sh"]
+        idpbuilder["idpbuilder
+        (Local Kind Cluster)"]
+        local_argocd["Argo CD
+        (Kind Cluster)"]
+        local_gitea["Gitea
+        (Kind Cluster)"]
+    end
+
+    subgraph "AWS"
+        aws_secrets["AWS Secrets Manager
+        - cnoe-ref-impl/config
+        - cnoe-ref-impl/github-app"]
+        
+        subgraph "EKS Cluster"
+            eks_argocd["Argo CD"]
+            eso["External Secret Operator"]
+            appset["addons-appset
+            (ApplicationSet)"]
+            
+            subgraph "Addons"
+                backstage["Backstage"]
+                keycloak["Keycloak"]
+                crossplane["Crossplane"]
+                cert_manager["Cert Manager"]
+                external_dns["External DNS"]
+                ingress["Ingress NGINX"]
+                argo_workflows["Argo Workflows"]
+            end
+        end
+    end
+
+    config --> create_secrets
+    secrets --> create_secrets
+    create_secrets --> aws_secrets
+    
+    config --> install
+    install --> idpbuilder
+    
+    idpbuilder --> local_argocd
+    idpbuilder --> local_gitea
+    
+    local_argocd -- "Installs" --> eks_argocd
+    local_argocd -- "Installs" --> eso
+    local_argocd -- "Creates" --> appset
+    
+    aws_secrets -- "Provides configuration" --> eso
+    
+    appset -- "Creates Argo CD Addon ApplicationSets" --> Addons
+    
+    eks_argocd -- "Manages" --> Addons
+    eso -- "Provides secrets to" --> Addons
+    
+    classDef aws fill:#FF9900,stroke:#232F3E,color:white;
+    classDef k8s fill:#326CE5,stroke:#254AA5,color:white;
+    classDef tools fill:#4CAF50,stroke:#388E3C,color:white;
+    classDef config fill:#9C27B0,stroke:#7B1FA2,color:white;
+    
+    class aws_secrets,EKS aws;
+    class eks_argocd,eso,appset,backstage,keycloak,crossplane,cert_manager,external_dns,ingress,argo_workflows k8s;
+    class idpbuilder,local_argocd,local_gitea,install,create_secrets tools;
+    class config,secrets config;
+```
+
 ## Getting Started
 
 > [!NOTE]
@@ -47,10 +186,10 @@ This will create all the pre-requisite AWS Resources required for the reference 
 | Name | Namespace | Service Account Name | Permissions |
 | ----- | --------- | -------------------- | ---------- |
 | Crossplane | crossplane-system | provider-aws | Admin Permissions but with [permission boundary](cluster/iam-policies/crossplane-permissions-boundry.json) |
-| External Secrets | external-secrets | external-secrets | Permissions |
-| External DNS | external-dns | external-dns | Permissions |
-| AWS Load Balancer Controller<br>(Only for w/o Auto Mode) | kube-system | aws-load-balancer-controller | Permissions |
-| AWS EBS CSI Controller<br>(Only for w/o Auto Mode) | kube-system | ebs-csi-controller-sa | Permissions |
+| External Secrets | external-secrets | external-secrets | [Permissions](https://external-secrets.io/latest/provider/aws-secrets-manager/#iam-policy) |
+| External DNS | external-dns | external-dns | [Permissions](https://kubernetes-sigs.github.io/external-dns/latest/docs/tutorials/aws/#iam-policy) |
+| AWS Load Balancer Controller<br>(When not using Auto Mode) | kube-system | aws-load-balancer-controller | [Permissions](https://github.com/kubernetes-sigs/aws-load-balancer-controller/blob/main/docs/install/iam_policy.json) |
+| AWS EBS CSI Controller<br>(When not using Auto Mode) | kube-system | ebs-csi-controller-sa | [Permissions](https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AmazonEBSCSIDriverPolicy.html) |
   
 
 > [!NOTE]
@@ -91,11 +230,12 @@ Argo CD requires `url` and `installationId` of the GitHub app. The `url` is the 
 
 The installation requires following binaries in the local environment:
 
-+ **AWS CLI**
-+ **Docker**
-+ **IDPBuilder**
-+ **yq**
-+ **AWS Vault** (Required only for local machine installation)
++ [**AWS CLI**](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
++ [**Docker**](https://docs.docker.com/engine/install/)
++ [**yq**](https://mikefarah.gitbook.io/yq/v3.x)
++ [**helm**](https://helm.sh/docs/intro/install/) _(Required only if using plain shell script for installation)_
++ [**IDPBuilder**](https://github.com/cnoe-io/idpbuilder) _(Required only if using ipdbuilder for installation)_
++ [**AWS Vault**](https://github.com/99designs/aws-vault?tab=readme-ov-file#installing) _(Required only for local machine installation)_
 
 #### 🔐 Configure AWS Credentials
 
@@ -153,17 +293,21 @@ Run below command to create new secrets or update the existing secrets if alread
 
 #### ▶️ Start the Installation Process
 
-The installation is done using `idpbuilder` as all the addons are installed as Argo CD apps. The Argo CD in `idpbuilder` is used to install Argo CD and External Secret Operator on EKS cluster. Once Argo CD on EKS is up, other addons are installed through it and it also manages itself. Check out more details about the [installation flow](docs/installation_flow.md).
+The installation can be done using plain shell script or `idpbuilder`. All the addons are installed as Argo CD apps. When using bash script, Argo CD and External Secret Operator are installed on EKS cluster as helm chart. When installing with `idpbuilder`, the Argo CD in `idpbuilder` is used install these initial addons. Once Argo CD on EKS is up, other addons are installed through it and finally the Argo CD on EKS also manages itself. Check out more details about the [installation flow](docs/installation_flow.md).
 
-Run following command to kick-off the installation.
++ **Install using script:**
+   ```bash
+   ./scripts/install.sh
+   ```
 
-```bash
-./scripts/install.sh
-```
++ **Install using `idpbuilder`:**
+   ```bash
+   ./scripts/install-using-idpbuilder.sh
+   ```
 
 #### 📊 Monitor Installation Process
 
-The `install.sh` will continue to run until all the addon Argo CD apps are healthy. To monitor the process, use below instructions to access Argo CD instances. _(If using EC2 instance, make sure the port-forward from EC2 to local machine is set up)_
+The installation script will continue to run until all the addon Argo CD apps are healthy. To monitor the process, use below instructions to access Argo CD instances. _(If using EC2 instance, make sure the port-forward from EC2 to local machine is set up)_
 
 + **`idpbuilder` Argo CD:** `idpbuilder` exposes its Argo CD instance at `https://cnoe.localtest.me:8443/argocd` which can be accessed through browser.
 
@@ -178,6 +322,10 @@ Depending upon the configuration, Argo CD will be accessible at http://localhost
 Switch between the kubernetes context of idpbuilder or EKS and retrieve the credentials for Argo CD can be retrieved with following command:
 
 ```bash
+kubectl get secrets -n argocd argocd-initial-admin-secret -oyaml | yq '.data.password' | base64 -d
+
+# OR
+
 idpbuilder get secrets -p argocd -o yaml
 ``` 
 

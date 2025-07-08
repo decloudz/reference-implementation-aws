@@ -10,9 +10,14 @@ All adoons are deployed as ArgoCD application in a two-step process.
 Therefore, the best way to investigate and issue is to navigate to respective ArgoCD UI and review any errors in Argo CD application or in logs of the specific addon.
 
 First, switch context to `kind-localdev` cluster (idpbuilder) or EKS cluster and run following command to retrieve passwordof Argo CD.
-```
+
+```bash
+kubectl get secrets -n argocd argocd-initial-admin-secret -oyaml | yq '.data.password' | base64 -d
+
+# OR
+
 idpbuilder get secrets -p argocd -o yaml
-```
+``` 
 
 **To Access **`idpbuilder`** Argo CD:**
 
