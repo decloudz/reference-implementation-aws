@@ -308,7 +308,7 @@ k8ssandra-operator:
   chartName: k8ssandra-operator
   namespace: k8ssandra-operator
   releaseName: k8ssandra-operator
-  defaultVersion: "1.25.0-SNAPSHOT"
+  defaultVersion: "1.24.0"
   chartRepository: "https://helm.k8ssandra.io/stable"
   selector:
     matchExpressions:
