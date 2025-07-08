@@ -4,3 +4,10 @@ ingress:
   ingressClassName: nginx
   enabled: true
   tls: true
+backstage:
+  config:
+    catalog:
+      locations:
+        - type: url
+          target: https://github.com/decloudz/reference-implementation-aws/blob/ref-impl-v2/templates/backstage/catalog-info.yaml
+        
