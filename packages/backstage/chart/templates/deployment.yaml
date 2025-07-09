@@ -21,11 +21,20 @@ spec:
         - name: backstage-config
           projected:
             sources:
+              {{- if .Values.backstage.config.integrations.github.enabled }}
               - secret:
                   name: integrations
                   items:
                     - key: github-integration.yaml
                       path: github-integration.yaml
+              {{- end }}
+              {{- if .Values.backstage.config.integrations.bitbucket.enabled }}
+              - secret:
+                  name: bitbucket-integration
+                  items:
+                    - key: bitbucket-integration.yaml
+                      path: bitbucket-integration.yaml
+              {{- end }}
               - configMap:
                   name: backstage-config
                   items:
@@ -57,3 +66,7 @@ spec:
           envFrom:
             - secretRef:
                 name: backstage-env-vars
+            {{- if .Values.backstage.config.integrations.bitbucket.enabled }}
+            - secretRef:
+                name: bitbucket-env-vars
+            {{- end }}

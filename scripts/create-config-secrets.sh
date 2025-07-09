@@ -46,7 +46,7 @@ create_update_secret() {
    echo -e "${CYAN}🔐 Secret ARN:${NC} $(aws secretsmanager describe-secret --secret-id "$SECRET_NAME_PREFIX/$1" --region $AWS_REGION --query 'ARN' --output text)"
 }
 
-echo -e "\n${YELLOW}📋 Processing files...${NC}"
+echo -e "\n${YELLOW}📋 Processing GitHub App files...${NC}"
 TEMP_SECRET_FILE=$(mktemp)
 
 # Start building JSON for Github App secrets
@@ -54,7 +54,7 @@ echo "{" > "$TEMP_SECRET_FILE"
 
 first=true
 file_count=0
-for file in "$PRIVATE_DIR"/*.yaml; do
+for file in "$PRIVATE_DIR"/*-github.yaml; do
     if [ -f "$file" ]; then
         filename=$(basename "$file" .yaml)
         echo -e "${CYAN}  📄 Adding:${NC} ${filename}"
@@ -72,16 +72,62 @@ for file in "$PRIVATE_DIR"/*.yaml; do
     fi
 done
 
-if [ $file_count -eq 0 ]; then
-    echo -e "${RED}❌ No files found in $PRIVATE_DIR${NC}"
+if [ $file_count -gt 0 ]; then
+    echo "" >> "$TEMP_SECRET_FILE"
+    echo "}" >> "$TEMP_SECRET_FILE"
+    create_update_secret "github-app"
+else
+    echo -e "${YELLOW}⚠️  No GitHub App files found, skipping GitHub secret creation${NC}"
     rm "$TEMP_SECRET_FILE"
-    exit 1
 fi
 
-echo "" >> "$TEMP_SECRET_FILE"
-echo "}" >> "$TEMP_SECRET_FILE"
-
-create_update_secret "github-app"
+# Process Bitbucket configuration
+echo -e "\n${YELLOW}📋 Processing Bitbucket configuration...${NC}"
+if [ -f "$PRIVATE_DIR/bitbucket-config.yaml" ]; then
+    TEMP_SECRET_FILE=$(mktemp)
+    
+    # Start building JSON for Bitbucket secrets
+    echo "{" > "$TEMP_SECRET_FILE"
+    
+    # Read Bitbucket configuration
+    username=$(yq eval '.username' "$PRIVATE_DIR/bitbucket-config.yaml")
+    app_password=$(yq eval '.app_password' "$PRIVATE_DIR/bitbucket-config.yaml")
+    server_url=$(yq eval '.server_url' "$PRIVATE_DIR/bitbucket-config.yaml")
+    workspace=$(yq eval '.workspace' "$PRIVATE_DIR/bitbucket-config.yaml")
+    
+    echo -e "${CYAN}  📄 Adding Bitbucket configuration for workspace:${NC} ${workspace}"
+    
+    # Add basic configuration
+    echo "  \"username\": \"$username\"," >> "$TEMP_SECRET_FILE"
+    echo "  \"app_password\": \"$app_password\"," >> "$TEMP_SECRET_FILE"
+    echo "  \"server_url\": \"$server_url\"," >> "$TEMP_SECRET_FILE"
+    echo "  \"workspace\": \"$workspace\"" >> "$TEMP_SECRET_FILE"
+    
+    # Add SSH key if exists
+    if [ -f "$PRIVATE_DIR/bitbucket-ssh-key" ]; then
+        echo -e "${CYAN}  📄 Adding SSH private key${NC}"
+        echo "," >> "$TEMP_SECRET_FILE"
+        echo -n "  \"ssh_private_key\": " >> "$TEMP_SECRET_FILE"
+        jq -Rs '.' "$PRIVATE_DIR/bitbucket-ssh-key" >> "$TEMP_SECRET_FILE"
+    fi
+    
+    # Add SSH public key if exists
+    if [ -f "$PRIVATE_DIR/bitbucket-ssh-key.pub" ]; then
+        echo -e "${CYAN}  📄 Adding SSH public key${NC}"
+        echo "," >> "$TEMP_SECRET_FILE"
+        echo -n "  \"ssh_public_key\": " >> "$TEMP_SECRET_FILE"
+        jq -Rs '.' "$PRIVATE_DIR/bitbucket-ssh-key.pub" >> "$TEMP_SECRET_FILE"
+    fi
+    
+    echo "" >> "$TEMP_SECRET_FILE"
+    echo "}" >> "$TEMP_SECRET_FILE"
+    
+    create_update_secret "bitbucket-app"
+else
+    echo -e "${YELLOW}⚠️  Bitbucket configuration not found, skipping Bitbucket secret creation${NC}"
+    echo -e "${CYAN}ℹ️  To enable Bitbucket integration, copy and configure:${NC}"
+    echo -e "${CYAN}   cp private/bitbucket-config.yaml.template private/bitbucket-config.yaml${NC}"
+fi
 
 # Build JSON for Config secret
 TEMP_SECRET_FILE=$(mktemp)

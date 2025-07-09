@@ -34,10 +34,18 @@ data:
         store: {{ .Values.backstage.config.backend.cache.store }}
 
     integrations:
+      {{- if .Values.backstage.config.integrations.github.enabled }}
       github:
         - host: github.com
           apps:
             - $include: github-integration.yaml
+      {{- end }}
+      {{- if .Values.backstage.config.integrations.bitbucket.enabled }}
+      bitbucket:
+        - host: {{ .Values.backstage.config.integrations.bitbucket.host }}
+          username: ${BITBUCKET_USERNAME}
+          appPassword: ${BITBUCKET_APP_PASSWORD}
+      {{- end }}
 
     proxy:
       '/argo-workflows/api':
@@ -87,6 +95,12 @@ data:
         {{- range .Values.backstage.config.catalog.locations }}
         - type: {{ .type }}
           target: {{ .target }}
+        {{- end }}
+        {{- if .Values.backstage.config.integrations.bitbucket.enabled }}
+        {{- range .Values.backstage.config.catalog.bitbucket_locations }}
+        - type: {{ .type }}
+          target: {{ .target }}
+        {{- end }}
         {{- end }}
     kubernetes:
       serviceLocatorMethod:

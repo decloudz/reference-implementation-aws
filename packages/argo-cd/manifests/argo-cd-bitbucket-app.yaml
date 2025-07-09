@@ -1,0 +1,132 @@
+---
+# Bitbucket App Password Secret for ArgoCD
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: bitbucket-app-password
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  refreshInterval: "15m"
+  secretStoreRef:
+    name: aws-secretsmanager
+    kind: ClusterSecretStore
+  target:
+    name: bitbucket-app-password
+    template:
+      metadata:
+        labels:
+          argocd.argoproj.io/secret-type: repo-creds
+      data:
+        type: git
+        url: '{{ .server_url }}'
+        username: "{{ .username }}"
+        password: "{{ .app_password }}"
+  data:
+  - secretKey: username
+    remoteRef:
+      conversionStrategy: Default
+      decodingStrategy: None
+      key: cnoe-ref-impl/bitbucket-app
+      metadataPolicy: None
+      property: username
+  - secretKey: app_password
+    remoteRef:
+      conversionStrategy: Default
+      decodingStrategy: None
+      key: cnoe-ref-impl/bitbucket-app
+      metadataPolicy: None
+      property: app_password
+  - secretKey: server_url
+    remoteRef:
+      conversionStrategy: Default
+      decodingStrategy: None
+      key: cnoe-ref-impl/bitbucket-app
+      metadataPolicy: None
+      property: server_url
+---
+# Bitbucket SSH Key Secret for ArgoCD (Optional but recommended)
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: bitbucket-ssh-key
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  refreshInterval: "15m"
+  secretStoreRef:
+    name: aws-secretsmanager
+    kind: ClusterSecretStore
+  target:
+    name: bitbucket-ssh-key
+    template:
+      metadata:
+        labels:
+          argocd.argoproj.io/secret-type: repo-creds
+      data:
+        type: git
+        url: 'git@{{ .server_url | replace "https://" "" }}:{{ .workspace }}'
+        sshPrivateKey: "{{ .ssh_private_key }}"
+  data:
+  - secretKey: ssh_private_key
+    remoteRef:
+      conversionStrategy: Default
+      decodingStrategy: None
+      key: cnoe-ref-impl/bitbucket-app
+      metadataPolicy: None
+      property: ssh_private_key
+  - secretKey: server_url
+    remoteRef:
+      conversionStrategy: Default
+      decodingStrategy: None
+      key: cnoe-ref-impl/bitbucket-app
+      metadataPolicy: None
+      property: server_url
+  - secretKey: workspace
+    remoteRef:
+      conversionStrategy: Default
+      decodingStrategy: None
+      key: cnoe-ref-impl/bitbucket-app
+      metadataPolicy: None
+      property: workspace
+---
+# Bitbucket workspace-specific SSH Key Secret for ArgoCD (for bitbucket.org)
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: bitbucket-workspace-ssh-key
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  refreshInterval: "15m"
+  secretStoreRef:
+    name: aws-secretsmanager
+    kind: ClusterSecretStore
+  target:
+    name: bitbucket-workspace-ssh-key
+    template:
+      metadata:
+        labels:
+          argocd.argoproj.io/secret-type: repo-creds
+      data:
+        type: git
+        url: 'git@bitbucket.org:{{ .workspace }}'
+        sshPrivateKey: "{{ .ssh_private_key }}"
+  data:
+  - secretKey: ssh_private_key
+    remoteRef:
+      conversionStrategy: Default
+      decodingStrategy: None
+      key: cnoe-ref-impl/bitbucket-app
+      metadataPolicy: None
+      property: ssh_private_key
+  - secretKey: workspace
+    remoteRef:
+      conversionStrategy: Default
+      decodingStrategy: None
+      key: cnoe-ref-impl/bitbucket-app
+      metadataPolicy: None
+      property: workspace
