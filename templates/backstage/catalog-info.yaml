@@ -30,6 +30,11 @@ spec:
     - ./cassandra-cluster/template.yaml
     - ./hdfs-cluster/template.yaml
     - ./postgres-cluster/template.yaml
+    # Bitbucket Integration Templates
+    - ./basic-bitbucket/template.yaml
+    - ./nodejs-backend-bitbucket/template.yaml
+    - ./spring-boot-backend-bitbucket/template.yaml
+    - ./go-backend-bitbucket/template.yaml
 
 ---
 apiVersion: backstage.io/v1alpha1

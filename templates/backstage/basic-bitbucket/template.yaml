@@ -1,0 +1,79 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  description: Creates a Basic Kubernetes Deployment with Bitbucket Repository
+  name: basic-bitbucket
+  title: Create a Basic Deployment (Bitbucket)
+  tags:
+    - recommended
+    - bitbucket
+    - kubernetes
+    - basic
+spec:
+  owner: platform-team
+  type: service
+  parameters:
+    - title: Configuration Options
+      required:
+        - name
+        - workspace
+      properties:
+        name:
+          type: string
+          description: Name of this application
+          pattern: '^[a-z0-9-]+$'
+        workspace:
+          type: string
+          description: Bitbucket workspace
+          default: your-workspace
+        description:
+          type: string
+          description: Description of the application
+          default: A basic Kubernetes deployment created from Backstage
+        
+  steps:
+    - id: template
+      name: Generating component
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          name: ${{parameters.name}}
+          description: ${{parameters.description}}
+          workspace: ${{parameters.workspace}}
+
+    - id: publish
+      name: Publishing to Bitbucket repository
+      action: publish:bitbucket
+      input:
+        description: ${{parameters.description}}
+        repoUrl: bitbucket.org?workspace=${{parameters.workspace}}&repo=${{parameters.name}}
+        defaultBranch: main
+        gitAuthorName: Backstage
+        gitAuthorEmail: backstage@example.com
+
+    - id: create-argocd-app
+      name: Create ArgoCD App
+      action: cnoe:create-argocd-app
+      input:
+        appName: ${{parameters.name}}
+        appNamespace: ${{parameters.name}}
+        argoInstance: in-cluster
+        projectName: default
+        repoUrl: https://bitbucket.org/${{parameters.workspace}}/${{parameters.name}}
+        path: "manifests"
+
+    - id: register
+      name: Register in Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish'].output.repoContentsUrl }}
+        catalogInfoPath: 'catalog-info.yaml'
+
+  output:
+    links:
+      - title: Repository
+        url: ${{ steps['publish'].output.remoteUrl }}
+      - title: Open in catalog
+        icon: catalog
+        entityRef: ${{ steps['register'].output.entityRef }}

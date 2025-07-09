@@ -38,6 +38,13 @@ I've successfully implemented the core Bitbucket integration for the CNOE Refere
 - ✅ Detailed implementation guide
 - ✅ Executive summary and overview
 
+#### 7. **Bitbucket Software Templates**
+- ✅ Basic Bitbucket deployment template
+- ✅ Node.js backend with Bitbucket Pipelines
+- ✅ Spring Boot backend with Bitbucket Pipelines
+- ✅ Go backend with Bitbucket Pipelines
+- ✅ Bitbucket Pipelines CI/CD skeleton
+
 ## 🚀 How to Use the Integration
 
 ### For New Users (Setting up Bitbucket from scratch)
