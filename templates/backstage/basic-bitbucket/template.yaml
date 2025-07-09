@@ -1,16 +1,11 @@
 apiVersion: scaffolder.backstage.io/v1beta3
 kind: Template
 metadata:
-  description: Creates a Basic Kubernetes Deployment with Bitbucket Repository
+  description: Creates a Basic Kubernetes Deployment with Bitbucket integration
   name: basic-bitbucket
   title: Create a Basic Deployment (Bitbucket)
-  tags:
-    - recommended
-    - bitbucket
-    - kubernetes
-    - basic
 spec:
-  owner: platform-team
+  owner: guests
   type: service
   parameters:
     - title: Configuration Options
@@ -20,7 +15,7 @@ spec:
       properties:
         name:
           type: string
-          description: Name of this application
+          description: name of this application
           pattern: '^[a-z0-9-]+$'
         workspace:
           type: string
@@ -43,7 +38,7 @@ spec:
           workspace: ${{parameters.workspace}}
 
     - id: publish
-      name: Publishing to Bitbucket repository
+      name: Publishing to a Bitbucket repository
       action: publish:bitbucket
       input:
         description: ${{parameters.description}}
@@ -51,7 +46,7 @@ spec:
         defaultBranch: main
         gitAuthorName: Backstage
         gitAuthorEmail: backstage@example.com
-
+        
     - id: create-argocd-app
       name: Create ArgoCD App
       action: cnoe:create-argocd-app
@@ -62,7 +57,7 @@ spec:
         projectName: default
         repoUrl: https://bitbucket.org/${{parameters.workspace}}/${{parameters.name}}
         path: "manifests"
-
+        
     - id: register
       name: Register in Catalog
       action: catalog:register
@@ -77,3 +72,5 @@ spec:
       - title: Open in catalog
         icon: catalog
         entityRef: ${{ steps['register'].output.entityRef }}
+      - title: ArgoCD Application
+        url: https://cnoe.localtest.me:8443/argocd/applications/argocd/${{parameters.name}}

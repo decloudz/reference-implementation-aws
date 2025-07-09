@@ -1,0 +1,238 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: database-request-bitbucket
+  title: Database Request (Bitbucket)
+  description: |
+    Request a new database instance with automated provisioning.
+    
+    This template creates a structured request for database provisioning including:
+    - Database type selection (PostgreSQL, MySQL, MongoDB, etc.)
+    - Environment-specific configuration
+    - Resource requirements
+    - Backup and retention policies
+    - Access controls and permissions
+    
+    The request is processed by the platform team and results in automated deployment.
+  
+spec:
+  owner: platform-team
+  type: resource-request
+  parameters:
+    - title: Repository Settings
+      required: [workspace]
+      properties:
+        workspace:
+          type: string
+          description: Bitbucket workspace
+          default: your-workspace
+          ui:help: 'Bitbucket workspace name'
+          
+    - title: Database Information
+      required: [databaseName, databaseType, environment]
+      properties:
+        databaseName:
+          type: string
+          description: Database name
+          pattern: '^[a-z][a-z0-9-]*[a-z0-9]$'
+          ui:help: 'Database name (lowercase, alphanumeric, hyphens, must start with letter)'
+        databaseType:
+          type: string
+          description: Database type
+          enum:
+            - postgresql
+            - mysql
+            - mongodb
+            - redis
+            - elasticsearch
+          enumNames:
+            - PostgreSQL
+            - MySQL
+            - MongoDB
+            - Redis
+            - Elasticsearch
+          ui:help: 'Select the database type for your application'
+        environment:
+          type: string
+          description: Target environment
+          enum:
+            - dev
+            - staging
+            - prod
+          ui:help: 'Environment where the database will be deployed'
+        
+    - title: Resource Requirements
+      properties:
+        storageSize:
+          type: string
+          description: Storage size
+          default: "10Gi"
+          enum:
+            - "5Gi"
+            - "10Gi"
+            - "20Gi"
+            - "50Gi"
+            - "100Gi"
+          ui:help: 'Storage size for the database'
+        memoryLimit:
+          type: string
+          description: Memory limit
+          default: "1Gi"
+          enum:
+            - "512Mi"
+            - "1Gi"
+            - "2Gi"
+            - "4Gi"
+            - "8Gi"
+          ui:help: 'Memory limit for the database instance'
+        cpuLimit:
+          type: string
+          description: CPU limit
+          default: "500m"
+          enum:
+            - "200m"
+            - "500m"
+            - "1000m"
+            - "2000m"
+          ui:help: 'CPU limit for the database instance'
+        
+    - title: Application Details
+      required: [applicationName, team]
+      properties:
+        applicationName:
+          type: string
+          description: Application name
+          pattern: '^[a-z][a-z0-9-]*[a-z0-9]$'
+          ui:help: 'Name of the application that will use this database'
+        team:
+          type: string
+          description: Team name
+          pattern: '^[a-z][a-z0-9-]*[a-z0-9]$'
+          ui:help: 'Team responsible for this database'
+        businessJustification:
+          type: string
+          description: Business justification
+          ui:widget: textarea
+          ui:help: 'Explain why this database is needed and how it will be used'
+        
+    - title: Backup & Retention
+      properties:
+        backupRetention:
+          type: string
+          description: Backup retention period
+          default: "7d"
+          enum:
+            - "1d"
+            - "7d"
+            - "30d"
+            - "90d"
+          ui:help: 'How long to retain database backups'
+        backupSchedule:
+          type: string
+          description: Backup schedule
+          default: "daily"
+          enum:
+            - "hourly"
+            - "daily"
+            - "weekly"
+          ui:help: 'Frequency of database backups'
+        
+    - title: Access & Security
+      properties:
+        networkPolicy:
+          type: string
+          description: Network policy
+          default: "restricted"
+          enum:
+            - "restricted"
+            - "namespace"
+            - "cluster"
+          enumNames:
+            - "Restricted (application pods only)"
+            - "Namespace (all pods in namespace)"
+            - "Cluster (all pods in cluster)"
+          ui:help: 'Network access policy for the database'
+        tlsRequired:
+          type: boolean
+          description: Require TLS encryption
+          default: true
+          ui:help: 'Whether to require TLS encryption for connections'
+
+  steps:
+    - id: fetch-template
+      name: Generate Database Request
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          databaseName: ${{ parameters.databaseName }}
+          databaseType: ${{ parameters.databaseType }}
+          environment: ${{ parameters.environment }}
+          storageSize: ${{ parameters.storageSize }}
+          memoryLimit: ${{ parameters.memoryLimit }}
+          cpuLimit: ${{ parameters.cpuLimit }}
+          applicationName: ${{ parameters.applicationName }}
+          team: ${{ parameters.team }}
+          businessJustification: ${{ parameters.businessJustification }}
+          backupRetention: ${{ parameters.backupRetention }}
+          backupSchedule: ${{ parameters.backupSchedule }}
+          networkPolicy: ${{ parameters.networkPolicy }}
+          tlsRequired: ${{ parameters.tlsRequired }}
+          workspace: ${{ parameters.workspace }}
+
+    - id: publish
+      name: Publish Database Request
+      action: publish:bitbucket
+      input:
+        description: Database request for ${{ parameters.databaseName }} (${{ parameters.databaseType }})
+        repoUrl: bitbucket.org?workspace=${{ parameters.workspace }}&repo=database-request-${{ parameters.databaseName }}-${{ parameters.environment }}
+        defaultBranch: main
+        gitAuthorName: Backstage
+        gitAuthorEmail: backstage@example.com
+
+    - id: register
+      name: Register Database Request
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish'].output.repoContentsUrl }}
+        catalogInfoPath: '/catalog-info.yaml'
+        optional: true
+
+  output:
+    links:
+      - title: Database Request Repository
+        url: ${{ steps['publish'].output.remoteUrl }}
+      - title: Open Request in Catalog
+        icon: catalog
+        entityRef: ${{ steps['register'].output.entityRef }}
+    text:
+      - title: Database Request Summary
+        content: |
+          Your database request has been submitted!
+          
+          ## ✅ Request Details:
+          
+          - **Database**: ${{ parameters.databaseName }}
+          - **Type**: ${{ parameters.databaseType }}
+          - **Environment**: ${{ parameters.environment }}
+          - **Storage**: ${{ parameters.storageSize }}
+          - **Memory**: ${{ parameters.memoryLimit }}
+          - **CPU**: ${{ parameters.cpuLimit }}
+          - **Application**: ${{ parameters.applicationName }}
+          - **Team**: ${{ parameters.team }}
+          
+          ## 🔄 Next Steps:
+          
+          1. **Platform Team Review**: The platform team will review your request
+          2. **Approval Process**: Request will be approved or additional information requested
+          3. **Automated Deployment**: Upon approval, the database will be automatically deployed
+          4. **Access Credentials**: You'll receive connection details and credentials
+          
+          ## 📞 Support:
+          
+          If you have questions about this request, contact the platform team.
+          
+          ## 🔗 Links:
+          
+          - [Request Repository](${{ steps['publish'].output.remoteUrl }})
+          - [Catalog Entry](https://cnoe.localtest.me:8443/catalog/default/component/database-request-${{ parameters.databaseName }}-${{ parameters.environment }})

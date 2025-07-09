@@ -1,0 +1,398 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: deploy-postgres-database-bitbucket
+  title: Deploy PostgreSQL Database (Bitbucket)
+  description: |
+    Deploy PostgreSQL database using Bitnami PostgreSQL Helm chart with ArgoCD multi-source configuration.
+    
+    Creates:
+    - Environment-specific branch with database configuration and values
+    - ArgoCD application pointing to Bitnami PostgreSQL Helm chart
+    - GitOps workflow for database configuration changes
+  
+spec:
+  owner: platform-team
+  type: database
+  parameters:
+    - title: Repository Settings
+      required: [repoName, workspace]
+      properties:
+        repoName:
+          type: string
+          description: GitOps repository name
+          default: postgres-database-gitops
+          pattern: '^[a-z0-9][a-z0-9-]*[a-z0-9]$'
+          minLength: 3
+          maxLength: 63
+          ui:help: 'Repository name (lowercase, alphanumeric, hyphens only, 3-63 chars, must start/end with alphanumeric)'
+        workspace:
+          type: string
+          description: Bitbucket workspace
+          default: your-workspace
+          ui:help: 'Bitbucket workspace name'
+        createNewRepo:
+          type: boolean
+          description: Create a new repository
+          default: true
+          ui:help: 'Uncheck if repository already exists and you want to add environment configuration'
+        repoDescription:
+          type: string
+          description: Repository description
+          default: GitOps repository for PostgreSQL database deployments
+        repoVisibility:
+          type: string
+          description: Repository visibility
+          default: private
+          enum:
+            - public
+            - private
+          enumNames:
+            - Public
+            - Private
+
+    - title: Environment Configuration
+      required: [envName, namespace]
+      properties:
+        envName:
+          type: string
+          description: Environment name (e.g., dev, staging, prod)
+          pattern: '^[a-z0-9-]+$'
+          ui:help: 'Environment name (lowercase, alphanumeric, hyphens only)'
+        copyFromEnv:
+          type: string
+          description: Copy configuration from existing environment (optional)
+          ui:help: 'Leave empty to create from template, or specify existing environment name to copy its configuration'
+        namespace:
+          type: string
+          description: Kubernetes namespace
+          default: ${{ parameters.envName }}
+          ui:help: 'Kubernetes namespace where the database will be deployed'
+        
+    - title: Database Configuration
+      required: [databaseName]
+      properties:
+        databaseName:
+          type: string
+          default: postgres
+          description: PostgreSQL database name
+          pattern: '^[a-z][a-z0-9_]*$'
+          ui:help: 'Database name (lowercase, alphanumeric, underscores, must start with letter)'
+        postgresVersion:
+          type: string
+          default: "15"
+          description: PostgreSQL version
+          enum:
+            - "11"
+            - "12"
+            - "13"
+            - "14"
+            - "15"
+            - "16"
+          ui:help: 'PostgreSQL major version'
+        storageSize:
+          type: string
+          default: 10Gi
+          description: Storage size for PostgreSQL data
+          pattern: '^[0-9]+[KMGT]i$'
+          ui:help: 'Storage size (e.g., 10Gi, 20Gi, 1Ti)'
+        
+    - title: Chart Configuration
+      properties:
+        chartRepo:
+          type: string
+          default: https://charts.bitnami.com/bitnami
+          description: Helm chart repository URL
+          ui:help: 'URL of the Bitnami Helm chart repository'
+        chartName:
+          type: string
+          default: postgresql
+          description: Helm chart name
+          ui:help: 'Name of the PostgreSQL chart in the repository'
+        chartVersion:
+          type: string
+          default: 13.2.24
+          description: Helm chart version
+          pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+          ui:help: 'Semantic version of the PostgreSQL chart (e.g., 13.2.24)'
+
+  steps:
+    # Step 1a: Generate environment-specific values.yaml from template (if not copying)
+    - id: fetch-values
+      name: Generate Environment Values from Template
+      action: fetch:template
+      input:
+        url: ./skeleton-values
+        targetPath: ./environments/${{ parameters.envName }}/${{ parameters.chartName }}
+        values:
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.databaseName }}
+          postgresVersion: ${{ parameters.postgresVersion }}
+          storageSize: ${{ parameters.storageSize }}
+          chartRepo: ${{ parameters.chartRepo }}
+          chartName: ${{ parameters.chartName }}
+          chartVersion: ${{ parameters.chartVersion }}
+          repoName: ${{ parameters.repoName }}
+          workspace: ${{ parameters.workspace }}
+      if: ${{ not parameters.copyFromEnv }}
+
+    # Step 1b: Fetch existing repository and copy configuration (if copying from existing env)
+    - id: fetch-and-copy
+      name: Copy Configuration from Existing Environment
+      action: fetch:plain
+      input:
+        url: https://bitbucket.org/${{ parameters.workspace }}/${{ parameters.repoName }}/src/main/environments/${{ parameters.copyFromEnv }}/${{ parameters.chartName }}
+        targetPath: ./environments/${{ parameters.envName }}/${{ parameters.chartName }}
+      if: ${{ parameters.copyFromEnv }}
+
+    # Step 2: Generate root catalog-info.yaml (only for new repos)
+    - id: fetch-catalog
+      name: Generate Catalog Info
+      action: fetch:template
+      input:
+        url: ./catalog-template
+        values:
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.databaseName }}
+          postgresVersion: ${{ parameters.postgresVersion }}
+          storageSize: ${{ parameters.storageSize }}
+          chartRepo: ${{ parameters.chartRepo }}
+          chartName: ${{ parameters.chartName }}
+          chartVersion: ${{ parameters.chartVersion }}
+          repoName: ${{ parameters.repoName }}
+          workspace: ${{ parameters.workspace }}
+      if: ${{ parameters.createNewRepo }}
+
+    # Step 3: Generate README.md (only for new repos)  
+    - id: fetch-readme
+      name: Generate README
+      action: fetch:template
+      input:
+        url: ./skeleton
+        copyWithoutRender:
+          - catalog-info.yaml
+        values:
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.databaseName }}
+          postgresVersion: ${{ parameters.postgresVersion }}
+          storageSize: ${{ parameters.storageSize }}
+          chartRepo: ${{ parameters.chartRepo }}
+          chartName: ${{ parameters.chartName }}
+          chartVersion: ${{ parameters.chartVersion }}
+          repoName: ${{ parameters.repoName }}
+          workspace: ${{ parameters.workspace }}
+      if: ${{ parameters.createNewRepo }}
+    
+    # Step 4: Publish to Bitbucket git repository (conditional)
+    - id: publish
+      name: Create New GitOps Repository
+      action: publish:bitbucket
+      input:
+        description: ${{ parameters.repoDescription }}
+        repoUrl: bitbucket.org?workspace=${{ parameters.workspace }}&repo=${{ parameters.repoName }}
+        defaultBranch: main
+        gitAuthorName: Backstage
+        gitAuthorEmail: backstage@example.com
+      if: ${{ parameters.createNewRepo }}
+
+    # Step 5: Update existing repository (conditional)
+    - id: publish-pr
+      name: Create Pull Request to Existing Repository
+      action: publish:bitbucket:pull-request
+      input:
+        repoUrl: bitbucket.org?workspace=${{ parameters.workspace }}&repo=${{ parameters.repoName }}
+        title: Add ${{ parameters.chartName }} configuration for ${{ parameters.envName }} environment
+        branchName: add-${{ parameters.envName }}-${{ parameters.chartName }}
+        sourceBranch: add-${{ parameters.envName }}-${{ parameters.chartName }}
+        targetBranch: main
+        description: |
+          ## Add ${{ parameters.envName }} Environment Configuration
+          
+          This PR adds PostgreSQL database configuration for:
+          - **Environment**: ${{ parameters.envName }}
+          - **Chart**: ${{ parameters.chartName }} v${{ parameters.chartVersion }}
+          - **Namespace**: ${{ parameters.namespace }}
+          - **Database**: ${{ parameters.databaseName }}
+          - **PostgreSQL Version**: ${{ parameters.postgresVersion }}
+          - **Storage**: ${{ parameters.storageSize }}
+          {% if parameters.copyFromEnv %}
+          - **Copied from**: ${{ parameters.copyFromEnv }} environment
+          {% endif %}
+          
+          ### Files Added:
+          - `environments/${{ parameters.envName }}/${{ parameters.chartName }}/values.yaml`
+          
+          {% if parameters.copyFromEnv %}
+          ### Configuration Source:
+          This configuration was copied from the `${{ parameters.copyFromEnv }}` environment and updated for the `${{ parameters.envName }}` environment.
+          {% else %}
+          ### Configuration Source:
+          This configuration was generated from the template with default values.
+          {% endif %}
+          
+          ### Next Steps:
+          1. Review the configuration files
+          2. Merge this PR to activate the environment
+          3. ArgoCD will automatically create the database after merge
+      if: ${{ not parameters.createNewRepo }}
+
+    # Step 6: Create ArgoCD Application (only for new repos)
+    - id: create-argocd-app
+      name: Create ArgoCD Application  
+      action: argocd:create-multi-source-app
+      input:
+        appName: ${{ parameters.chartName }}-${{ parameters.envName }}
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        sources: |
+          - repoURL: ${{ parameters.chartRepo }}
+            chart: ${{ parameters.chartName }}
+            targetRevision: ${{ parameters.chartVersion }}
+            helm:
+              releaseName: ${{ parameters.chartName }}-${{ parameters.envName }}
+              valueFiles:
+                - $values/environments/${{ parameters.envName }}/${{ parameters.chartName }}/values.yaml
+          - repoURL: https://bitbucket.org/${{ parameters.workspace }}/${{ parameters.repoName }}
+            targetRevision: main
+            ref: values
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.namespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+        annotations:
+          backstage.io/managed-by-location: scaffolder
+          backstage.io/managed-by-origin-location: template:postgres-database-bitbucket
+          environment: ${{ parameters.envName }}
+          chart: ${{ parameters.chartName }}
+          database: ${{ parameters.databaseName }}
+      if: ${{ parameters.createNewRepo }}
+
+    # Step 7: Wait for repository to be ready
+    - id: wait
+      name: Wait for Repository Initialization
+      action: debug:wait
+      input:
+        seconds: 3
+      if: ${{ parameters.createNewRepo }}
+
+    # Step 8: Register in catalog (only for new repos)
+    - id: register
+      name: Register Component in Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish'].output.repoContentsUrl }}
+        catalogInfoPath: '/catalog-info.yaml'
+        optional: true
+      if: ${{ parameters.createNewRepo }}
+
+    # Step 9: Validate registration (debug step)
+    - id: validate-entity
+      name: Validate Entity Registration
+      action: debug:log
+      input:
+        message: |
+          Entity registration attempted for: component:default/${{ parameters.repoName | lower }}
+          Repository URL: ${{ steps['publish'].output.repoContentsUrl }}
+          Repository Name: ${{ parameters.repoName }}
+          Entity Name (lowercase): ${{ parameters.repoName | lower }}
+          
+          REGISTRATION STATUS:
+          Method: {% if steps.register.output.entityRef %}✅ ${{ steps.register.output.entityRef }}{% else %}❌ Failed{% endif %}
+          
+          MANUAL REGISTRATION:
+          If automatic registration failed, manually add this URL to Backstage:
+          📋 Copy this URL: https://bitbucket.org/${{ parameters.workspace }}/${{ parameters.repoName }}/raw/main/catalog-info.yaml
+          
+          Steps to manually register:
+          1. Go to: https://cnoe.localtest.me:8443/catalog/import
+          2. Paste the URL above
+          3. Click "Analyze" then "Import"
+          
+          The entity should appear shortly as Backstage indexes the repository.
+      if: ${{ parameters.createNewRepo }}
+
+  output:
+    links:
+      - title: Environment Values Configuration
+        url: https://bitbucket.org/${{ parameters.workspace }}/${{ parameters.repoName }}/src/main/environments/${{ parameters.envName }}/${{ parameters.chartName }}/values.yaml
+      - title: GitOps Repository
+        url: https://bitbucket.org/${{ parameters.workspace }}/${{ parameters.repoName }}
+      - title: ArgoCD Application
+        url: https://cnoe.localtest.me:8443/argocd/applications/argocd/${{ parameters.chartName }}-${{ parameters.envName }}
+      - title: Pull Request (if existing repo)
+        url: https://bitbucket.org/${{ parameters.workspace }}/${{ parameters.repoName }}/pull-requests/
+        if: ${{ not parameters.createNewRepo }}
+      - title: Open in Catalog
+        icon: catalog
+        entityRef: component:default/${{ parameters.repoName | lower }}
+        if: ${{ parameters.createNewRepo }}
+    text:
+      - title: PostgreSQL GitOps Workflow
+        content: |
+          Your PostgreSQL database is configured for the **${{ parameters.envName }}** environment!{% if parameters.copyFromEnv %} (copied from ${{ parameters.copyFromEnv }}){% endif %}
+          
+          ## ✅ What was created:
+          
+          📁 **Repository**: ${{ parameters.workspace }}/${{ parameters.repoName }}
+          📂 **Environment Path**: environments/${{ parameters.envName }}/${{ parameters.chartName }}/
+          ⚙️  **Configuration**: values.yaml
+          🗄️  **Database**: ${{ parameters.databaseName }}
+          🔢 **PostgreSQL Version**: ${{ parameters.postgresVersion }}
+          💾 **Storage**: ${{ parameters.storageSize }}
+          🚀 **ArgoCD App**: ${{ parameters.chartName }}-${{ parameters.envName }}
+          📋 **Backstage Entity**: ${{ parameters.repoName | lower }}
+          
+          ## 🔄 Repository Structure:
+          ```
+          environments/${{ parameters.envName }}/${{ parameters.chartName }}/
+          └── values.yaml        # Environment-specific configuration
+          ```
+          
+          ## 🛠️ Making Changes:
+          
+          1. **Clone repository**: 
+             ```bash
+             git clone https://bitbucket.org/${{ parameters.workspace }}/${{ parameters.repoName }}
+             ```
+          
+          2. **Edit environment config**: 
+             ```bash
+             cd ${{ parameters.repoName }}
+             vim environments/${{ parameters.envName }}/${{ parameters.chartName }}/values.yaml
+             ```
+          
+          3. **Commit and push**:
+             ```bash
+             git add . && git commit -m "Update ${{ parameters.envName }} config" && git push
+             ```
+          
+          4. **ArgoCD automatically syncs** the changes!
+          
+          ## 🔗 Quick Links:
+          
+          - [Repository](https://bitbucket.org/${{ parameters.workspace }}/${{ parameters.repoName }})
+          - [ArgoCD App](https://cnoe.localtest.me:8443/argocd/applications/argocd/${{ parameters.chartName }}-${{ parameters.envName }})
+          - [Backstage Catalog](https://cnoe.localtest.me:8443/catalog)
+          
+          ## 🔐 Database Access:
+          
+          After deployment, you can access the database using:
+          ```bash
+          # Get the password
+          kubectl get secret ${{ parameters.chartName }}-${{ parameters.envName }} -n ${{ parameters.namespace }} -o jsonpath="{.data.postgres-password}" | base64 -d
+          
+          # Port forward to access database
+          kubectl port-forward svc/${{ parameters.chartName }}-${{ parameters.envName }} 5432:5432 -n ${{ parameters.namespace }}
+          
+          # Connect with psql
+          psql -h localhost -U postgres -d ${{ parameters.databaseName }}
+          ```

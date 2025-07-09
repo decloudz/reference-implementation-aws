@@ -1,0 +1,115 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: kafka-${{ values.clusterName }}-${{ values.envName }}
+  title: Kafka Cluster - ${{ values.clusterName | title }} (${{ values.envName | title }})
+  description: Apache Kafka cluster for streaming data processing in ${{ values.envName }} environment
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:kafka-cluster
+    argocd/app-name: kafka-${{ values.clusterName }}-${{ values.envName }}
+    github.com/project-slug: giteaAdmin/kafka-${{ values.clusterName }}-${{ values.envName }}
+    kubernetes.io/cluster-name: ${{ values.clusterName }}
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - kafka
+    - streaming
+    - messaging
+    - data-infrastructure
+    - ${{ values.envName }}
+  links:
+    - url: https://cnoe.localtest.me:8443/argocd/applications/argocd/kafka-${{ values.clusterName }}-${{ values.envName }}
+      title: ArgoCD Application
+      icon: deployment
+    - url: https://cnoe.localtest.me:8443/gitea/giteaAdmin/kafka-${{ values.clusterName }}-${{ values.envName }}
+      title: Configuration Repository
+      icon: github
+spec:
+  type: data-infrastructure
+  lifecycle: production
+  owner: platform-team
+  system: data-infrastructure-${{ values.envName }}
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: kafka-${{ values.clusterName }}-bootstrap-${{ values.envName }}
+  title: Kafka Bootstrap Service (${{ values.clusterName | title }} - ${{ values.envName | title }})
+  description: Kafka bootstrap service for client connections
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    kubernetes.io/service-name: ${{ values.clusterName }}-kafka-bootstrap
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - kafka
+    - service
+    - bootstrap
+    - ${{ values.envName }}
+spec:
+  type: k8s-service
+  lifecycle: production
+  owner: platform-team
+  system: data-infrastructure-${{ values.envName }}
+  dependsOn:
+    - component:default/kafka-${{ values.clusterName }}-${{ values.envName }}
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: kafka-${{ values.clusterName }}-brokers-${{ values.envName }}
+  title: Kafka Brokers (${{ values.clusterName | title }} - ${{ values.envName | title }})
+  description: Kafka broker pods for message processing
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    kubernetes.io/statefulset-name: ${{ values.clusterName }}-kafka
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - kafka
+    - brokers
+    - statefulset
+    - ${{ values.envName }}
+spec:
+  type: k8s-statefulset
+  lifecycle: production
+  owner: platform-team
+  system: data-infrastructure-${{ values.envName }}
+  dependsOn:
+    - component:default/kafka-${{ values.clusterName }}-${{ values.envName }}
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: zookeeper-${{ values.clusterName }}-${{ values.envName }}
+  title: ZooKeeper Ensemble (${{ values.clusterName | title }} - ${{ values.envName | title }})
+  description: ZooKeeper ensemble for Kafka coordination
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    kubernetes.io/statefulset-name: ${{ values.clusterName }}-zookeeper
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - zookeeper
+    - coordination
+    - statefulset
+    - ${{ values.envName }}
+spec:
+  type: k8s-statefulset
+  lifecycle: production
+  owner: platform-team
+  system: data-infrastructure-${{ values.envName }}
+  dependsOn:
+    - component:default/kafka-${{ values.clusterName }}-${{ values.envName }}
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: data-infrastructure-${{ values.envName }}
+  title: Data Infrastructure (${{ values.envName | title }})
+  description: Data infrastructure components for ${{ values.envName }} environment
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+  tags:
+    - data-infrastructure
+    - platform
+    - ${{ values.envName }}
+spec:
+  owner: platform-team

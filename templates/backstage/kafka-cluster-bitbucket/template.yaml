@@ -1,0 +1,255 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: request-kafka-cluster-bitbucket
+  title: Request Kafka Cluster (Bitbucket)
+  description: |
+    Request a new Apache Kafka cluster using Strimzi operator with KRaft mode.
+    
+    Creates:
+    - High-availability Kafka cluster with KRaft (no ZooKeeper)
+    - Configurable controller and broker node pools
+    - Persistent storage for data durability
+    - Internal and TLS listeners for secure communication
+    - Topic and User operators for management
+    - SASL authentication support
+  
+spec:
+  owner: platform-team
+  type: data-infrastructure
+  parameters:
+    - title: Repository Settings
+      required: [workspace]
+      properties:
+        workspace:
+          type: string
+          description: Bitbucket workspace
+          default: your-workspace
+          ui:help: 'Bitbucket workspace name'
+          
+    - title: Cluster Information
+      required: [clusterName, envName]
+      properties:
+        clusterName:
+          type: string
+          description: Kafka cluster name
+          pattern: '^[a-z][a-z0-9-]*[a-z0-9]$'
+          ui:help: 'Cluster name (lowercase, alphanumeric, hyphens, must start with letter)'
+        envName:
+          type: string
+          description: Environment for the Kafka cluster
+          enum:
+            - dev
+            - staging
+            - prod
+          ui:help: 'Target environment for the Kafka cluster'
+        namespace:
+          type: string
+          description: Kubernetes namespace for the cluster
+          default: ${{ parameters.envName }}-kafka
+          ui:help: 'Namespace where Kafka cluster will be deployed'
+
+    - title: Kafka Configuration
+      properties:
+        kafkaVersion:
+          type: string
+          description: Kafka version
+          default: "3.9.0"
+          enum:
+            - "3.9.0"
+            - "4.0.0"
+          ui:help: 'Apache Kafka version to deploy (supported by Strimzi 0.46.1)'
+        kafkaReplicas:
+          type: integer
+          description: Number of Kafka brokers
+          default: 1
+          minimum: 1
+          maximum: 9
+          ui:help: 'Number of Kafka broker replicas (recommended: 3 for production)'
+        kafkaStorageSize:
+          type: string
+          description: Storage size per Kafka broker
+          default: "10Gi"
+          enum:
+            - "5Gi"
+            - "10Gi"
+            - "20Gi"
+            - "50Gi"
+            - "100Gi"
+          ui:help: 'Persistent storage size for each Kafka broker'
+        enableTLS:
+          type: boolean
+          title: Enable TLS encryption
+          description: Enable TLS for secure communication
+          default: true
+          ui:help: 'Enable TLS encryption for Kafka communications'
+        enableAuthentication:
+          type: boolean
+          title: Enable SASL authentication
+          description: Enable SASL SCRAM-SHA-512 authentication for clients
+          default: true
+          ui:help: 'Enable SASL authentication with automatic user creation'
+
+  steps:
+    # Step 1: Generate Kafka cluster manifests
+    - id: create-kafka-manifests
+      name: Generate Kafka Cluster Manifests
+      action: fetch:template
+      input:
+        url: ./skeleton/manifests
+        targetPath: ./manifests
+        values:
+          clusterName: ${{ parameters.clusterName }}
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          kafkaVersion: ${{ parameters.kafkaVersion }}
+          kafkaReplicas: ${{ parameters.kafkaReplicas }}
+          kafkaStorageSize: ${{ parameters.kafkaStorageSize }}
+          enableTLS: ${{ parameters.enableTLS }}
+          enableAuthentication: ${{ parameters.enableAuthentication }}
+          workspace: ${{ parameters.workspace }}
+
+    # Step 2: Generate catalog information
+    - id: fetch-catalog
+      name: Generate Catalog Info
+      action: fetch:template
+      input:
+        url: ./catalog-template
+        values:
+          clusterName: ${{ parameters.clusterName }}
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          kafkaVersion: ${{ parameters.kafkaVersion }}
+          kafkaReplicas: ${{ parameters.kafkaReplicas }}
+          workspace: ${{ parameters.workspace }}
+
+    # Step 3: Create repository with Kafka configuration
+    - id: publish-config
+      name: Create Repository with Kafka Configuration
+      action: publish:bitbucket
+      input:
+        description: Kafka cluster ${{ parameters.clusterName }} configuration for ${{ parameters.envName }}
+        repoUrl: bitbucket.org?workspace=${{ parameters.workspace }}&repo=kafka-${{ parameters.clusterName }}-${{ parameters.envName }}
+        defaultBranch: main
+        gitAuthorName: Backstage
+        gitAuthorEmail: backstage@example.com
+
+    # Step 4: Register in catalog
+    - id: register
+      name: Register Component in Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish-config'].output.repoContentsUrl }}
+        catalogInfoPath: '/catalog-info.yaml'
+        optional: true
+
+    # Step 5: Create ArgoCD Application for Kafka Cluster
+    - id: create-argocd-app
+      name: Create ArgoCD Application for Kafka Cluster
+      action: cnoe:create-argocd-app
+      input:
+        appName: kafka-${{ parameters.clusterName }}-${{ parameters.envName }}
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        repoUrl: https://bitbucket.org/${{ parameters.workspace }}/kafka-${{ parameters.clusterName }}-${{ parameters.envName }}
+        path: manifests
+        targetRevision: main
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.namespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+
+    # Step 6: Wait for ArgoCD to sync
+    - id: wait-for-sync
+      name: Wait for ArgoCD Application Sync
+      action: debug:wait
+      input:
+        seconds: 30
+
+    # Step 7: Validate cluster deployment
+    - id: validate-cluster
+      name: Validate Kafka Cluster Deployment
+      action: debug:log
+      input:
+        message: |
+          🎉 **Kafka Cluster Deployment Initiated!**
+          
+          ## ✅ What was created:
+          
+          📁 **Repository**: ${{ parameters.workspace }}/kafka-${{ parameters.clusterName }}-${{ parameters.envName }}
+          🚀 **ArgoCD App**: kafka-${{ parameters.clusterName }}-${{ parameters.envName }}
+          📋 **Catalog Component**: kafka-${{ parameters.clusterName }}-${{ parameters.envName }}
+          🌍 **Environment**: ${{ parameters.envName }}
+          📦 **Namespace**: ${{ parameters.namespace }}
+          
+          ## 🔧 Cluster Configuration:
+          
+          - **Cluster Name**: ${{ parameters.clusterName }}
+          - **Kafka Version**: ${{ parameters.kafkaVersion }}
+          - **Kafka Brokers**: ${{ parameters.kafkaReplicas }}
+          - **Storage per Broker**: ${{ parameters.kafkaStorageSize }}
+          - **TLS Encryption**: ${{ parameters.enableTLS }}
+          - **SASL Authentication**: ${{ parameters.enableAuthentication }}
+          
+          ## 🔄 AUTOMATED DEPLOYMENT IN PROGRESS:
+          
+          ArgoCD is automatically deploying your Kafka cluster!
+          
+          ### Monitor Progress:
+          - [Kafka Cluster ArgoCD App](https://cnoe.localtest.me:8443/argocd/applications/argocd/kafka-${{ parameters.clusterName }}-${{ parameters.envName }})
+          
+          ### Check Cluster Status (usually takes 5-10 minutes):
+          ```bash
+          kubectl get kafka ${{ parameters.clusterName }} -n ${{ parameters.namespace }}
+          kubectl get pods -n ${{ parameters.namespace }}
+          ```
+          
+          ### Access Kafka Cluster:
+          - **Bootstrap Servers**: ${{ parameters.clusterName }}-kafka-bootstrap.${{ parameters.namespace }}.svc.cluster.local:9092
+          {% if parameters.enableTLS %}- **TLS Bootstrap**: ${{ parameters.clusterName }}-kafka-bootstrap.${{ parameters.namespace }}.svc.cluster.local:9093{% endif %}
+          
+          ## 🎯 Next Steps:
+          
+          1. **Monitor ArgoCD Application**: Check deployment progress in ArgoCD
+          2. **Wait for Cluster Ready**: Usually takes 5-10 minutes for full deployment
+          3. **Create Topics**: Use Kafka topics for your applications
+          4. **Connect Applications**: Use the bootstrap servers for client connections
+
+  output:
+    links:
+      - title: Kafka Cluster ArgoCD App
+        url: https://cnoe.localtest.me:8443/argocd/applications/argocd/kafka-${{ parameters.clusterName }}-${{ parameters.envName }}
+      - title: Kafka Configuration Repository
+        url: https://bitbucket.org/${{ parameters.workspace }}/kafka-${{ parameters.clusterName }}-${{ parameters.envName }}
+      - title: Kafka Cluster Component
+        icon: catalog
+        entityRef: component:default/kafka-${{ parameters.clusterName }}-${{ parameters.envName }}
+    text:
+      - title: Kafka Cluster Request Summary
+        content: |
+          Your Kafka cluster has been requested!
+          
+          ## ✅ Cluster Details:
+          
+          - **Cluster**: ${{ parameters.clusterName }}
+          - **Environment**: ${{ parameters.envName }}
+          - **Namespace**: ${{ parameters.namespace }}
+          - **Brokers**: ${{ parameters.kafkaReplicas }}
+          - **Version**: ${{ parameters.kafkaVersion }}
+          
+          ## 🔄 Next Steps:
+          
+          1. **Monitor Deployment**: Check ArgoCD application progress
+          2. **Wait for Ready State**: Cluster deployment takes 5-10 minutes
+          3. **Create Topics**: Configure topics for your applications
+          4. **Connect Applications**: Use bootstrap servers for connectivity
+          
+          ## 📞 Support:
+          
+          If you encounter issues, contact the platform team or check the ArgoCD application logs.
