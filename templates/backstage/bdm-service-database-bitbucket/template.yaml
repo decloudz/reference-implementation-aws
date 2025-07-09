@@ -1,0 +1,185 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: request-bitbucket-bdm-service-database
+  title: Request Database for BDM Service (Bitbucket)
+  description: |
+    Request a new database for the BDM (Business Data Management) Service in a specific environment.
+    
+    Creates:
+    - New database in shared PostgreSQL cluster
+    - Database user with appropriate permissions
+    - Kubernetes secret with connection details
+    - Pre-configured for BDM service requirements
+  
+spec:
+  owner: platform-team
+  type: database-request
+  parameters:
+    - title: Repository Settings
+      required: [workspace]
+      properties:
+        workspace:
+          type: string
+          description: Bitbucket workspace
+          default: your-workspace
+          ui:help: "Bitbucket workspace name"
+          
+    - title: Environment Configuration (Bitbucket)
+      required: [envName]
+      properties:
+        envName:
+          type: string
+          description: Environment where database is needed
+          enum:
+            - dev
+            - staging
+            - prod
+          ui:help: 'Target environment for the BDM service database'
+        namespace:
+          type: string
+          description: Kubernetes namespace for the BDM service
+          default: ${{ parameters.envName }}
+          ui:help: 'Namespace where your BDM service runs (defaults to environment name)'
+
+    - title: Database Configuration (Pre-configured for BDM Service) (Bitbucket)
+      properties:
+        databaseName:
+          type: string
+          description: Database name (with environment prefix)
+          default: ${{ parameters.envName }}_bdm_db
+          pattern: '^[a-z][a-z0-9_]*$'
+          ui:help: 'Database name for BDM service (e.g., dev_bdm_db)'
+        dbUser:
+          type: string
+          description: Database username (with environment prefix)
+          default: ${{ parameters.envName }}_bdm_service_user
+          pattern: '^[a-z][a-z0-9_]*$'
+          ui:help: 'Database user for BDM service (e.g., dev_bdm_service_user)'
+        
+    - title: PostgreSQL Cluster (Bitbucket)
+      properties:
+        postgresCluster:
+          type: string
+          description: PostgreSQL cluster name
+          default: postgresql
+          ui:help: 'Name of the existing PostgreSQL cluster to create database in'
+        postgresNamespace:
+          type: string
+          description: PostgreSQL namespace
+          default: ${{ parameters.envName }}
+          ui:help: 'Namespace where PostgreSQL cluster is deployed'
+
+  steps:
+    # Step 1: Generate database configuration files
+    - id: fetch-db-config
+      name: Generate Database Configuration
+-bitbucket      action: fetch:template
+      input:
+        url: ../database-request/skeleton
+        targetPath: ./database-config/bdm-service
+        values:
+          workspace: ${{ parameters.workspace }}
+          serviceName: bdm-service
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.databaseName }}
+          dbUser: ${{ parameters.dbUser }}
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+          targetRepo: bdm-service-db-setup
+
+    # Step 2: Create database initialization job
+    - id: create-db-job
+      name: Create Database Initialization Job
+-bitbucket      action: fetch:template
+      input:
+        url: ../database-request/job-template
+        targetPath: ./manifests
+        values:
+          workspace: ${{ parameters.workspace }}
+          serviceName: bdm-service
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.databaseName }}
+          dbUser: ${{ parameters.dbUser }}
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+
+    # Step 3: Create repository with database configuration
+    - id: publish-config
+      name: Create Repository with Database Configuration
+-bitbucket      action: publish:bitbucket
+      input:
+        gitAuthorName: Backstage
+        gitAuthorEmail: backstage@example.com
+        description: Database configuration for BDM Service in ${{ parameters.envName }}
+        repoUrl: bitbucket.org?workspace=${{ parameters.workspace }}&repo=bdm-service-db-setup
+        defaultBranch: main
+
+    # Step 4: Create ArgoCD Application for Database Configuration
+    - id: create-argocd-app
+      name: Create ArgoCD Application for Database Setup
+-bitbucket      action: cnoe:create-argocd-app
+      input:
+        appName: bdm-service-database-setup
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        repoUrl: https://bitbucket.org/${{ parameters.workspace }}/bdm-service-db-setup
+        path: manifests
+        targetRevision: main
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.postgresNamespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+
+    # Step 5: Wait for ArgoCD to sync
+    - id: wait-for-sync
+      name: Wait for ArgoCD Application Sync
+-bitbucket      action: debug:wait
+      input:
+        seconds: 15
+
+    # Step 6: Validate database creation
+    - id: validate-db
+      name: Validate Database Creation
+-bitbucket      action: debug:log
+      input:
+        message: |
+          Database setup initiated for: **BDM Service**
+          
+          ## ✅ What was created:
+          
+          📁 **Repository**: bdm-service-db-setup
+          🚀 **ArgoCD App**: bdm-service-database-setup
+          🗄️ **Database Name**: ${{ parameters.databaseName }}
+          👤 **Database User**: ${{ parameters.dbUser }}
+          🔐 **Target Secret**: bdm-service-database
+          📦 **Target Namespace**: ${{ parameters.namespace }}
+          🐘 **PostgreSQL Cluster**: ${{ parameters.postgresCluster }}
+
+  output:
+    links:
+      - title: Database Setup ArgoCD App (Bitbucket)
+        url: https://cnoe.localtest.me:8443/argocd/applications/argocd/bdm-service-database-setup
+      - title: Database Configuration Repository (Bitbucket)
+        url: https://bitbucket.org/${{ parameters.workspace }}/bdm-service-db-setup
+    text:
+      - title: BDM Service Database Request Summary (Bitbucket)
+        content: |
+          Your database has been requested for the **BDM Service**!
+          
+          ## ✅ Database Details:
+          
+          - **Service**: BDM Service
+          - **Environment**: ${{ parameters.envName }}
+          - **Database**: ${{ parameters.databaseName }}
+          - **User**: ${{ parameters.dbUser }}
+          - **Secret**: bdm-service-database
+          - **Namespace**: ${{ parameters.namespace }}

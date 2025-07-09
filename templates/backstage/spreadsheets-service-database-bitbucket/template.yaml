@@ -1,0 +1,138 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: request-bitbucket-spreadsheets-service-database
+  title: Request Database for Spreadsheets Service (Bitbucket)
+  description: |
+    Request a new database for the Spreadsheets Service in a specific environment.
+    
+    Creates:
+    - New database in shared PostgreSQL cluster
+    - Database user with appropriate permissions
+    - Kubernetes secret with connection details
+    - Pre-configured for spreadsheets service requirements
+  
+spec:
+  owner: platform-team
+  type: database-request
+  parameters:
+    - title: Repository Settings
+      required: [workspace]
+      properties:
+        workspace:
+          type: string
+          description: Bitbucket workspace
+          default: your-workspace
+          ui:help: 'Bitbucket workspace name'
+          
+    - title: Environment Configuration (Bitbucket)
+      required: [envName]
+      properties:
+        envName:
+          type: string
+          description: Environment where database is needed
+          enum: [dev, staging, prod]
+          ui:help: 'Target environment for the Spreadsheets service database'
+        namespace:
+          type: string
+          description: Kubernetes namespace for the Spreadsheets service
+          default: ${{ parameters.envName }}
+
+    - title: Database Configuration (Pre-configured for Spreadsheets Service) (Bitbucket)
+      properties:
+        databaseName:
+          type: string
+          description: Database name (with environment prefix)
+          default: ${{ parameters.envName }}_spreadsheets_db
+          pattern: '^[a-z][a-z0-9_]*$'
+          ui:help: 'Database name for Spreadsheets service (e.g., dev_spreadsheets_db)'
+        dbUser:
+          type: string
+          description: Database username (with environment prefix)
+          default: ${{ parameters.envName }}_spreadsheets_service_user
+          pattern: '^[a-z][a-z0-9_]*$'
+          ui:help: 'Database user for Spreadsheets service (e.g., dev_spreadsheets_service_user)'
+        
+    - title: PostgreSQL Cluster (Bitbucket)
+      properties:
+        postgresCluster:
+          type: string
+          description: PostgreSQL cluster name
+          default: postgresql
+        postgresNamespace:
+          type: string
+          description: PostgreSQL namespace
+          default: ${{ parameters.envName }}
+
+  steps:
+    - id: fetch-db-config
+      name: Generate Database Configuration-bitbucket
+      action: fetch:template
+      input:
+        url: ../database-request/skeleton
+        targetPath: ./database-config/spreadsheets-service
+        values:
+          workspace: ${{ parameters.workspace }}
+          serviceName: spreadsheets-service
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.databaseName }}
+          dbUser: ${{ parameters.dbUser }}
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+          targetRepo: spreadsheets-service-db-setup
+
+    - id: create-db-job
+      name: Create Database Initialization Job-bitbucket
+      action: fetch:template
+      input:
+        url: ../database-request/job-template
+        targetPath: ./manifests
+        values:
+          workspace: ${{ parameters.workspace }}
+          serviceName: spreadsheets-service
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.databaseName }}
+          dbUser: ${{ parameters.dbUser }}
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+
+    - id: publish-config
+      name: Create Repository with Database Configuration-bitbucket
+      action: publish:bitbucket
+      input:
+        gitAuthorName: Backstage
+        gitAuthorEmail: backstage@example.com
+        description: Database configuration for Spreadsheets Service in ${{ parameters.envName }}
+        repoUrl: bitbucket.org?workspace=${{ parameters.workspace }}cnoe.localtest.me:8443/gitea?repo=repo=spreadsheets-service-db-setup
+        defaultBranch: main
+
+    - id: create-argocd-app
+      name: Create ArgoCD Application for Database Setup-bitbucket
+      action: cnoe:create-argocd-app
+      input:
+        appName: spreadsheets-service-database-setup
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        repoUrl: https://bitbucket.org/${{ parameters.workspace }}/spreadsheets-service-db-setup
+        path: manifests
+        targetRevision: main
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.postgresNamespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+
+  output:
+    text:
+      - title: Spreadsheets Service Database Request Summary (Bitbucket)
+        content: |
+          Database requested for **Spreadsheets Service** in ${{ parameters.envName }}!
+          - Database: ${{ parameters.databaseName }}
+          - Secret: spreadsheets-service-database

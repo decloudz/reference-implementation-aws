@@ -1,0 +1,700 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: request-bitbucket-all-services-databases
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+  title: Request Databases for All Platform Services (Bitbucket)
+  description: |
+    Request databases for all platform services in a specific environment.
+    
+    Creates databases for:
+    - Authentication Service
+    - BDM Service  
+    - LOI Service
+    - Issue Ingestion Service
+    - Issue Service
+    - Spreadsheets Service
+    - Prime Cloud Platform
+    
+    Each service gets:
+    - New database in shared PostgreSQL cluster
+    - Database user with appropriate permissions
+    - Kubernetes secret with connection details
+    - Pre-configured with service-specific settings
+  
+spec:
+  owner: platform-team
+  type: database-request
+  parameters:
+    - title: Repository Settings
+      required: [workspace]
+      properties:
+        workspace:
+          type: string
+          description: Bitbucket workspace
+          default: your-workspace
+          ui:help: "Bitbucket workspace name"
+          
+    - title: Environment Configuration (Bitbucket)
+      required: [envName]
+      properties:
+        envName:
+          type: string
+          description: Environment where databases are needed
+          enum:
+            - dev
+            - staging
+            - prod
+          ui:help: 'Target environment for all service databases'
+        namespace:
+          type: string
+          description: Default Kubernetes namespace for services
+          default: ${{ parameters.envName }}
+          ui:help: 'Default namespace where services run (can be overridden per service)'
+
+    - title: Service Selection (Bitbucket)
+      description: Choose which services need databases
+      properties:
+        createAuthDb:
+          type: boolean
+          title: Authentication Service Database (Bitbucket)
+          description: Create database for authentication service
+          default: true
+          ui:help: 'Database: {env}_authentication_db, Secret: authentication-service-secrets'
+        createBdmDb:
+          type: boolean
+          title: BDM Service Database (Bitbucket)
+          description: Create database for BDM service
+          default: true
+          ui:help: 'Database: {env}_bdm_db, Secret: bdm-service-secrets'
+        createLoiDb:
+          type: boolean
+          title: LOI Service Database (Bitbucket)
+          description: Create database for LOI service
+          default: true
+          ui:help: 'Database: {env}_loi_db, Secret: loi-service-secrets'
+        createIssueIngestionDb:
+          type: boolean
+          title: Issue Ingestion Service Database (Bitbucket)
+          description: Create database for issue ingestion service
+          default: true
+          ui:help: 'Database: {env}_issue_ingestion_db, Secret: issue-ingestion-service-secrets'
+        createIssueDb:
+          type: boolean
+          title: Issue Service Database (Bitbucket)
+          description: Create database for issue service
+          default: true
+          ui:help: 'Database: {env}_issue_db, Secret: issue-service-secrets'
+        createSpreadsheetsDb:
+          type: boolean
+          title: Spreadsheets Service Database (Bitbucket)
+          description: Create database for spreadsheets service
+          default: true
+          ui:help: 'Database: {env}_spreadsheets_db, Secret: spreadsheets-service-secrets'
+        createPrimeCloudDb:
+          type: boolean
+          title: Prime Cloud Database (Bitbucket)
+          description: Create database for Prime Cloud platform
+          default: true
+          ui:help: 'Database: {env}_prime_cloud_db, Secret: prime-cloud-secrets'
+        
+    - title: PostgreSQL Cluster Configuration (Bitbucket)
+      properties:
+        postgresCluster:
+          type: string
+          description: PostgreSQL cluster name
+          default: postgresql
+          ui:help: 'Name of the existing PostgreSQL cluster to create databases in'
+        postgresNamespace:
+          type: string
+          description: PostgreSQL namespace
+          default: ${{ parameters.envName }}
+          ui:help: 'Namespace where PostgreSQL cluster is deployed'
+
+    - title: Advanced Options (Bitbucket)
+      properties:
+        createCombinedRepo:
+          type: boolean
+          title: Create Combined Repository (Bitbucket)
+          description: Create a single repository with all database configurations
+          default: true
+          ui:help: 'If true, creates one repo. If false, creates separate repos per service'
+
+    - title: Authentication Service Java Keystore (Bitbucket)
+      description: Configure Java keystore for authentication service (only if auth service is selected)
+      properties:
+        createAuthKeystore:
+          type: boolean
+          description: Create Java keystore for authentication service
+          default: true
+          ui:help: 'Create a Java keystore with self-signed certificate for SSL/TLS'
+        authKeystorePassword:
+          type: string
+          description: Auth service keystore password (defaults to 'password')
+          ui:field: Secret
+          ui:help: 'Password for the Java keystore - leave empty to use auth-service default (password)'
+        authKeyAlias:
+          type: string
+          default: authentication-service
+          description: Auth service certificate alias in keystore
+          ui:help: 'Alias name for the certificate in the keystore'
+        authKeyPassword:
+          type: string
+          description: Auth service private key password (defaults to '789xyz')
+          ui:field: Secret
+          ui:help: 'Password for the private key - leave empty to use auth-service default (789xyz)'
+        authCertificateCommonName:
+          type: string
+          default: ops360.localtest.me
+          description: Auth service certificate Common Name (CN)
+          ui:help: 'Common Name for the self-signed certificate (usually the domain name)'
+        authCertificateValidityDays:
+          type: integer
+          default: 365
+          description: Auth service certificate validity period in days
+          ui:help: 'How long the certificate should be valid (in days). Uses EC algorithm for auth-service compatibility.'
+
+  steps:
+    # Step 1: Debug parameters
+    - id: debug-params
+      name: Debug Template Parameters
+-bitbucket      action: debug:log
+      input:
+        message: |
+          📋 All Services Database Setup Parameters:
+          - Environment: '${{ parameters.envName }}'
+          - Default Namespace: '${{ parameters.namespace }}'
+          - PostgreSQL Cluster: '${{ parameters.postgresCluster }}'
+          - PostgreSQL Namespace: '${{ parameters.postgresNamespace }}'
+          - Combined Repository: '${{ parameters.createCombinedRepo }}'
+          
+          Services to create:
+          - Authentication Service: ${{ parameters.createAuthDb }}
+          - BDM Service: ${{ parameters.createBdmDb }}
+          - LOI Service: ${{ parameters.createLoiDb }}
+          - Issue Ingestion Service: ${{ parameters.createIssueIngestionDb }}
+          - Issue Service: ${{ parameters.createIssueDb }}
+          - Spreadsheets Service: ${{ parameters.createSpreadsheetsDb }}
+          - Prime Cloud: ${{ parameters.createPrimeCloudDb }}
+
+    # Step 2: Generate Authentication Service Database (if selected)
+    - id: create-auth-db-job
+      name: Create Authentication Service Database Job
+-bitbucket      action: fetch:template
+      input:
+        url: ../database-request/job-template
+        targetPath: ./manifests/authentication-service
+        values:
+          workspace: ${{ parameters.workspace }}
+          serviceName: authentication-service
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.envName }}_authentication_db
+          dbUser: ${{ parameters.envName }}_auth_service_user
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+          createKeystore: ${{ parameters.createAuthKeystore }}
+          keystorePassword: ${{ parameters.authKeystorePassword }}
+          keyAlias: ${{ parameters.authKeyAlias }}
+          keyPassword: ${{ parameters.authKeyPassword }}
+          certificateCommonName: ${{ parameters.authCertificateCommonName }}
+          certificateValidityDays: ${{ parameters.authCertificateValidityDays }}
+      if: ${{ parameters.createAuthDb }}
+
+    # Step 3: Generate BDM Service Database (if selected)
+    - id: create-bdm-db-job
+      name: Create BDM Service Database Job
+-bitbucket      action: fetch:template
+      input:
+        url: ../database-request/job-template
+        targetPath: ./manifests/bdm-service
+        values:
+          workspace: ${{ parameters.workspace }}
+          serviceName: bdm-service
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.envName }}_bdm_db
+          dbUser: ${{ parameters.envName }}_bdm_service_user
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+      if: ${{ parameters.createBdmDb }}
+
+    # Step 4: Generate LOI Service Database (if selected)
+    - id: create-loi-db-job
+      name: Create LOI Service Database Job
+-bitbucket      action: fetch:template
+      input:
+        url: ../database-request/job-template
+        targetPath: ./manifests/loi-service
+        values:
+          workspace: ${{ parameters.workspace }}
+          serviceName: loi-service
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.envName }}_loi_db
+          dbUser: ${{ parameters.envName }}_loi_service_user
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+      if: ${{ parameters.createLoiDb }}
+
+    # Step 5: Generate Issue Ingestion Service Database (if selected)
+    - id: create-issue-ingestion-db-job
+      name: Create Issue Ingestion Service Database Job
+-bitbucket      action: fetch:template
+      input:
+        url: ../database-request/job-template
+        targetPath: ./manifests/issue-ingestion-service
+        values:
+          workspace: ${{ parameters.workspace }}
+          serviceName: issue-ingestion-service
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.envName }}_issue_ingestion_db
+          dbUser: ${{ parameters.envName }}_issue_ingestion_user
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+      if: ${{ parameters.createIssueIngestionDb }}
+
+    # Step 6: Generate Issue Service Database (if selected)
+    - id: create-issue-db-job
+      name: Create Issue Service Database Job
+-bitbucket      action: fetch:template
+      input:
+        url: ../database-request/job-template
+        targetPath: ./manifests/issue-service
+        values:
+          workspace: ${{ parameters.workspace }}
+          serviceName: issue-service
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.envName }}_issue_db
+          dbUser: ${{ parameters.envName }}_issue_service_user
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+      if: ${{ parameters.createIssueDb }}
+
+    # Step 7: Generate Spreadsheets Service Database (if selected)
+    - id: create-spreadsheets-db-job
+      name: Create Spreadsheets Service Database Job
+-bitbucket      action: fetch:template
+      input:
+        url: ../database-request/job-template
+        targetPath: ./manifests/spreadsheets-service
+        values:
+          workspace: ${{ parameters.workspace }}
+          serviceName: spreadsheets-service
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.envName }}_spreadsheets_db
+          dbUser: ${{ parameters.envName }}_spreadsheets_service_user
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+      if: ${{ parameters.createSpreadsheetsDb }}
+
+    # Step 8: Generate Prime Cloud Database (if selected)
+    - id: create-prime-cloud-db-job
+      name: Create Prime Cloud Database Job
+-bitbucket      action: fetch:template
+      input:
+        url: ../database-request/job-template
+        targetPath: ./manifests/prime-cloud
+        values:
+          workspace: ${{ parameters.workspace }}
+          serviceName: prime-cloud
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          databaseName: ${{ parameters.envName }}_prime_cloud_db
+          dbUser: ${{ parameters.envName }}_prime_cloud_user
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+      if: ${{ parameters.createPrimeCloudDb }}
+
+    # Step 9: Generate README and documentation
+    - id: create-readme
+      name: Generate Documentation
+-bitbucket      action: fetch:template
+      input:
+        url: ./documentation
+        values:
+          workspace: ${{ parameters.workspace }}
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+          createAuthDb: ${{ parameters.createAuthDb }}
+          createBdmDb: ${{ parameters.createBdmDb }}
+          createLoiDb: ${{ parameters.createLoiDb }}
+          createIssueIngestionDb: ${{ parameters.createIssueIngestionDb }}
+          createIssueDb: ${{ parameters.createIssueDb }}
+          createSpreadsheetsDb: ${{ parameters.createSpreadsheetsDb }}
+          createPrimeCloudDb: ${{ parameters.createPrimeCloudDb }}
+
+    # Step 10: Generate catalog information
+    - id: fetch-catalog
+      name: Generate Catalog Info
+-bitbucket      action: fetch:template
+      input:
+        url: ./catalog-template
+        values:
+          workspace: ${{ parameters.workspace }}
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          postgresCluster: ${{ parameters.postgresCluster }}
+          postgresNamespace: ${{ parameters.postgresNamespace }}
+          createAuthDb: ${{ parameters.createAuthDb }}
+          createBdmDb: ${{ parameters.createBdmDb }}
+          createLoiDb: ${{ parameters.createLoiDb }}
+          createIssueIngestionDb: ${{ parameters.createIssueIngestionDb }}
+          createIssueDb: ${{ parameters.createIssueDb }}
+          createSpreadsheetsDb: ${{ parameters.createSpreadsheetsDb }}
+          createPrimeCloudDb: ${{ parameters.createPrimeCloudDb }}
+
+    # Step 11: Create repository with all database configurations
+    - id: publish-config
+      name: Create Repository with All Database Configurations
+-bitbucket      action: publish:bitbucket
+      input:
+        gitAuthorName: Backstage
+        gitAuthorEmail: backstage@example.com
+        description: Database configurations for all platform services in ${{ parameters.envName }}
+        repoUrl: bitbucket.org?workspace=${{ parameters.workspace }}&repo=platform-services-databases-${{ parameters.envName }}
+        defaultBranch: main
+
+    # Step 12: Register in catalog
+    - id: register
+      name: Register Components in Catalog
+-bitbucket      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish-config'].output.repoContentsUrl }}
+        catalogInfoPath: '/catalog-info.yaml'
+        optional: true
+
+    # Step 13: Create ArgoCD Applications for each selected service
+    - id: create-auth-argocd-app
+      name: Create Authentication Service ArgoCD Application
+-bitbucket      action: cnoe:create-argocd-app
+      input:
+        appName: authentication-service-database-setup-${{ parameters.envName }}
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        repoUrl: https://bitbucket.org/${{ parameters.workspace }}/platform-services-databases-${{ parameters.envName }}
+        path: manifests/authentication-service
+        targetRevision: main
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.postgresNamespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+      if: ${{ parameters.createAuthDb }}
+
+    - id: create-bdm-argocd-app
+      name: Create BDM Service ArgoCD Application
+-bitbucket      action: cnoe:create-argocd-app
+      input:
+        appName: bdm-service-database-setup-${{ parameters.envName }}
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        repoUrl: https://bitbucket.org/${{ parameters.workspace }}/platform-services-databases-${{ parameters.envName }}
+        path: manifests/bdm-service
+        targetRevision: main
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.postgresNamespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+      if: ${{ parameters.createBdmDb }}
+
+    - id: create-loi-argocd-app
+      name: Create LOI Service ArgoCD Application
+-bitbucket      action: cnoe:create-argocd-app
+      input:
+        appName: loi-service-database-setup-${{ parameters.envName }}
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        repoUrl: https://bitbucket.org/${{ parameters.workspace }}/platform-services-databases-${{ parameters.envName }}
+        path: manifests/loi-service
+        targetRevision: main
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.postgresNamespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+      if: ${{ parameters.createLoiDb }}
+
+    - id: create-issue-ingestion-argocd-app
+      name: Create Issue Ingestion Service ArgoCD Application
+-bitbucket      action: cnoe:create-argocd-app
+      input:
+        appName: issue-ingestion-service-database-setup-${{ parameters.envName }}
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        repoUrl: https://bitbucket.org/${{ parameters.workspace }}/platform-services-databases-${{ parameters.envName }}
+        path: manifests/issue-ingestion-service
+        targetRevision: main
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.postgresNamespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+      if: ${{ parameters.createIssueIngestionDb }}
+
+    - id: create-issue-argocd-app
+      name: Create Issue Service ArgoCD Application
+-bitbucket      action: cnoe:create-argocd-app
+      input:
+        appName: issue-service-database-setup-${{ parameters.envName }}
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        repoUrl: https://bitbucket.org/${{ parameters.workspace }}/platform-services-databases-${{ parameters.envName }}
+        path: manifests/issue-service
+        targetRevision: main
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.postgresNamespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+      if: ${{ parameters.createIssueDb }}
+
+    - id: create-spreadsheets-argocd-app
+      name: Create Spreadsheets Service ArgoCD Application
+-bitbucket      action: cnoe:create-argocd-app
+      input:
+        appName: spreadsheets-service-database-setup-${{ parameters.envName }}
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        repoUrl: https://bitbucket.org/${{ parameters.workspace }}/platform-services-databases-${{ parameters.envName }}
+        path: manifests/spreadsheets-service
+        targetRevision: main
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.postgresNamespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+      if: ${{ parameters.createSpreadsheetsDb }}
+
+    - id: create-prime-cloud-argocd-app
+      name: Create Prime Cloud ArgoCD Application
+-bitbucket      action: cnoe:create-argocd-app
+      input:
+        appName: prime-cloud-database-setup-${{ parameters.envName }}
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        repoUrl: https://bitbucket.org/${{ parameters.workspace }}/platform-services-databases-${{ parameters.envName }}
+        path: manifests/prime-cloud
+        targetRevision: main
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.postgresNamespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+      if: ${{ parameters.createPrimeCloudDb }}
+
+    # Step 14: Wait for ArgoCD to sync
+    - id: wait-for-sync
+      name: Wait for ArgoCD Applications to Sync
+-bitbucket      action: debug:wait
+      input:
+        seconds: 30
+
+    # Step 15: Validate database creation
+    - id: validate-all-dbs
+      name: Validate All Database Creations
+-bitbucket      action: debug:log
+      input:
+        message: |
+          🎉 **All Platform Services Database Setup Initiated!**
+          
+          ## ✅ What was created:
+          
+          📁 **Repository**: platform-services-databases-${{ parameters.envName }}
+          🌍 **Environment**: ${{ parameters.envName }}
+          🐘 **PostgreSQL Cluster**: ${{ parameters.postgresCluster }}
+          📦 **Default Namespace**: ${{ parameters.namespace }}
+          
+          ## 🗄️ Databases Created:
+          
+          {% if parameters.createAuthDb %}
+          - **Authentication Service**:
+            - Database: `authentication_db`
+            - User: `auth_service_user`
+            - Secret: `authentication-service-secrets`
+            - ArgoCD App: `authentication-service-database-setup-${{ parameters.envName }}`
+          {% endif %}
+          
+          {% if parameters.createBdmDb %}
+          - **BDM Service**:
+            - Database: `bdm_db`
+            - User: `bdm_service_user`
+            - Secret: `bdm-service-secrets`
+            - ArgoCD App: `bdm-service-database-setup-${{ parameters.envName }}`
+          {% endif %}
+          
+          {% if parameters.createLoiDb %}
+          - **LOI Service**:
+            - Database: `loi_db`
+            - User: `loi_service_user`
+            - Secret: `loi-service-secrets`
+            - ArgoCD App: `loi-service-database-setup-${{ parameters.envName }}`
+          {% endif %}
+          
+          {% if parameters.createIssueIngestionDb %}
+          - **Issue Ingestion Service**:
+            - Database: `issue_ingestion_db`
+            - User: `issue_ingestion_user`
+            - Secret: `issue-ingestion-service-secrets`
+            - ArgoCD App: `issue-ingestion-service-database-setup-${{ parameters.envName }}`
+          {% endif %}
+          
+          {% if parameters.createIssueDb %}
+          - **Issue Service**:
+            - Database: `issue_db`
+            - User: `issue_service_user`
+            - Secret: `issue-service-secrets`
+            - ArgoCD App: `issue-service-database-setup-${{ parameters.envName }}`
+          {% endif %}
+          
+          {% if parameters.createSpreadsheetsDb %}
+          - **Spreadsheets Service**:
+            - Database: `spreadsheets_db`
+            - User: `spreadsheets_service_user`
+            - Secret: `spreadsheets-service-secrets`
+            - ArgoCD App: `spreadsheets-service-database-setup-${{ parameters.envName }}`
+          {% endif %}
+          
+          {% if parameters.createPrimeCloudDb %}
+          - **Prime Cloud**:
+            - Database: `prime_cloud_db`
+            - User: `prime_cloud_user`
+            - Secret: `prime-cloud-secrets`
+            - ArgoCD App: `prime-cloud-database-setup-${{ parameters.envName }}`
+          {% endif %}
+          
+          ## 🔄 AUTOMATED SETUP IN PROGRESS:
+          
+          ArgoCD is automatically applying all database configurations!
+          
+          ### Monitor Progress:
+          
+          {% if parameters.createAuthDb %}
+          - [Authentication Service Database](https://cnoe.localtest.me:8443/argocd/applications/argocd/authentication-service-database-setup-${{ parameters.envName }})
+          {% endif %}
+          {% if parameters.createBdmDb %}
+          - [BDM Service Database](https://cnoe.localtest.me:8443/argocd/applications/argocd/bdm-service-database-setup-${{ parameters.envName }})
+          {% endif %}
+          {% if parameters.createLoiDb %}
+          - [LOI Service Database](https://cnoe.localtest.me:8443/argocd/applications/argocd/loi-service-database-setup-${{ parameters.envName }})
+          {% endif %}
+          {% if parameters.createIssueIngestionDb %}
+          - [Issue Ingestion Service Database](https://cnoe.localtest.me:8443/argocd/applications/argocd/issue-ingestion-service-database-setup-${{ parameters.envName }})
+          {% endif %}
+          {% if parameters.createIssueDb %}
+          - [Issue Service Database](https://cnoe.localtest.me:8443/argocd/applications/argocd/issue-service-database-setup-${{ parameters.envName }})
+          {% endif %}
+          {% if parameters.createSpreadsheetsDb %}
+          - [Spreadsheets Service Database](https://cnoe.localtest.me:8443/argocd/applications/argocd/spreadsheets-service-database-setup-${{ parameters.envName }})
+          {% endif %}
+          {% if parameters.createPrimeCloudDb %}
+          - [Prime Cloud Database](https://cnoe.localtest.me:8443/argocd/applications/argocd/prime-cloud-database-setup-${{ parameters.envName }})
+          {% endif %}
+          
+          ### Check Job Completion (usually takes 2-5 minutes):
+          ```bash
+          kubectl get jobs -n ${{ parameters.postgresNamespace }} | grep database-init-job
+          ```
+          
+          ### Verify Secret Creation:
+          ```bash
+          kubectl get secrets -n ${{ parameters.namespace }} | grep database
+          ```
+          
+          ## 🎯 Next Steps:
+          
+          1. **Monitor ArgoCD Applications**: Check database setup progress in ArgoCD (links above)
+          2. **Wait for Job Completions**: Usually takes 2-5 minutes for all database creations
+          3. **Verify Secret Creations**: Ensure all database secrets were created successfully
+          4. **Update Your Services**: Use the generated secrets in your service deployments
+          
+          ## 🔐 Security Notes:
+          
+          - All database passwords are auto-generated and stored securely
+          - Each user has limited permissions (no superuser access)  
+          - Connections are only allowed from within the cluster
+          - Secrets are automatically created in your service namespaces
+
+  output:
+    links:
+      - title: All Services Database Repository (Bitbucket)
+        url: https://bitbucket.org/${{ parameters.workspace }}/platform-services-databases-${{ parameters.envName }}
+      - title: Platform Database System (Bitbucket)
+        icon: catalog
+        entityRef: system:default/platform-databases-${{ parameters.envName }}
+      - title: PostgreSQL Cluster Resource (Bitbucket)
+        icon: catalog
+        entityRef: resource:default/postgresql-${{ parameters.envName }}
+      - title: PostgreSQL Cluster ArgoCD App (Bitbucket)
+        url: https://cnoe.localtest.me:8443/argocd/applications/argocd/${{ parameters.postgresCluster }}-${{ parameters.envName }}
+      - title: ArgoCD Applications (All) (Bitbucket)
+        url: https://cnoe.localtest.me:8443/argocd/applications?search=database-setup-${{ parameters.envName }}
+    text:
+      - title: All Platform Services Database Request Summary (Bitbucket)
+        content: |
+          🎉 **Database setup initiated for all selected platform services!**
+          
+          ## ✅ Environment: **${{ parameters.envName }}**
+          
+          ## 📊 Services Requested:
+          {% if parameters.createAuthDb %}✅ Authentication Service{% endif %}
+          {% if parameters.createBdmDb %}✅ BDM Service{% endif %}
+          {% if parameters.createLoiDb %}✅ LOI Service{% endif %}
+          {% if parameters.createIssueIngestionDb %}✅ Issue Ingestion Service{% endif %}
+          {% if parameters.createIssueDb %}✅ Issue Service{% endif %}
+          {% if parameters.createSpreadsheetsDb %}✅ Spreadsheets Service{% endif %}
+          {% if parameters.createPrimeCloudDb %}✅ Prime Cloud{% endif %}
+          
+          ## 🔄 Status: **In Progress**
+          
+          All database initialization jobs are running automatically via ArgoCD.
+          Check the ArgoCD applications to monitor progress.
+          
+          ## 🛠️ Troubleshooting:
+          
+          If any database creation fails, check individual job logs:
+          ```bash
+          kubectl logs job/database-init-job-{service-name}-${{ parameters.envName }} -n ${{ parameters.postgresNamespace }}
+          ```

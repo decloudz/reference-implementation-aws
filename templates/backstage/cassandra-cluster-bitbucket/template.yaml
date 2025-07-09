@@ -1,0 +1,417 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: request-cassandra-cluster-bitbucket
+  title: Request Cassandra Cluster (Bitbucket)
+  description: |
+    Request a new Apache Cassandra cluster using K8ssandra operator.
+    
+    Creates:
+    - High-availability Cassandra cluster with configurable datacenters
+    - Stargate API gateway for REST and GraphQL access
+    - Reaper for cluster repair automation
+    - Medusa for backup and restore operations
+    - Persistent storage with configurable capacity
+    - Authentication and authorization support
+    - Monitoring and metrics integration
+  
+spec:
+  owner: platform-team
+  type: data-infrastructure
+  parameters:
+    - title: Repository Settings
+      required: [workspace]
+      properties:
+        workspace:
+          type: string
+          description: Bitbucket workspace
+          default: your-workspace
+          ui:help: 'Bitbucket workspace name'
+          
+    - title: Cluster Information
+      required: [clusterName, envName]
+      properties:
+        clusterName:
+          type: string
+          description: Cassandra cluster name
+          pattern: '^[a-z][a-z0-9-]*[a-z0-9]$'
+          ui:help: 'Cluster name (lowercase, alphanumeric, hyphens, must start with letter)'
+        envName:
+          type: string
+          description: Environment for the Cassandra cluster
+          enum:
+            - dev
+            - staging
+            - prod
+          ui:help: 'Target environment for the Cassandra cluster'
+        namespace:
+          type: string
+          description: Kubernetes namespace for the cluster
+          default: ${{ parameters.envName }}
+          ui:help: 'Namespace where Cassandra cluster will be deployed'
+
+    - title: Cassandra Configuration
+      properties:
+        cassandraVersion:
+          type: string
+          description: Cassandra version
+          default: "4.0.11"
+          enum:
+            - "4.0.11"
+            - "4.0.7"
+            - "3.11.14"
+          ui:help: 'Apache Cassandra version to deploy'
+        datacenterName:
+          type: string
+          description: Datacenter name
+          default: "dc1"
+          pattern: '^[a-z][a-z0-9]*$'
+          ui:help: 'Name for the Cassandra datacenter'
+        clusterSize:
+          type: integer
+          description: Number of Cassandra nodes
+          default: 1
+          minimum: 1
+          maximum: 9
+          ui:help: 'Number of Cassandra nodes (1 for local dev, 3+ for production)'
+
+    - title: Storage Configuration
+      properties:
+        storageSize:
+          type: string
+          description: Storage size per Cassandra node
+          default: "5Gi"
+          enum:
+            - "2Gi"
+            - "5Gi"
+            - "10Gi"
+            - "20Gi"
+            - "50Gi"
+            - "100Gi"
+            - "200Gi"
+          ui:help: 'Persistent storage size for each Cassandra node'
+        storageClass:
+          type: string
+          description: Storage class for persistent volumes
+          default: "standard"
+          ui:help: 'Kubernetes storage class for persistent volumes'
+
+    - title: Resource Configuration
+      properties:
+        heapSize:
+          type: string
+          description: JVM heap size for Cassandra
+          default: "384Mi"
+          enum:
+            - "256Mi"
+            - "384Mi"
+            - "512Mi"
+            - "1G"
+            - "2G"
+          ui:help: 'JVM heap size for Cassandra nodes (384Mi minimum for K8ssandra)'
+        cpuRequests:
+          type: string
+          description: CPU requests per node
+          default: "300m"
+          enum:
+            - "250m"
+            - "300m"
+            - "500m"
+            - "1000m"
+          ui:help: 'CPU requests for each Cassandra node'
+        memoryRequests:
+          type: string
+          description: Memory requests per node
+          default: "1200Mi"
+          enum:
+            - "768Mi"
+            - "1200Mi"
+            - "1Gi"
+            - "2Gi"
+            - "4Gi"
+          ui:help: 'Memory requests for each Cassandra node'
+        cpuLimits:
+          type: string
+          description: CPU limits per node
+          default: "600m"
+          enum:
+            - "400m"
+            - "600m"
+            - "1000m"
+            - "2000m"
+          ui:help: 'CPU limits for each Cassandra node'
+        memoryLimits:
+          type: string
+          description: Memory limits per node
+          default: "2Gi"
+          enum:
+            - "1536Mi"
+            - "2Gi"
+            - "4Gi"
+            - "8Gi"
+            - "16Gi"
+          ui:help: 'Memory limits for each Cassandra node (2Gi minimum for K8ssandra)'
+
+    - title: Namespace Configuration
+      properties:
+        createNamespace:
+          type: boolean
+          title: Create new namespace
+          description: Create a new namespace for the cluster
+          default: false
+          ui:help: 'Enable if you want to create a new namespace, disable to use existing namespace'
+
+    - title: Features Configuration
+      properties:
+        enableStargate:
+          type: boolean
+          title: Enable Stargate API Gateway
+          description: Enable Stargate for REST and GraphQL API access
+          default: true
+          ui:help: 'Enable Stargate API gateway for modern application access'
+        enableReaper:
+          type: boolean
+          title: Enable Reaper
+          description: Enable Reaper for automated cluster repairs
+          default: true
+          ui:help: 'Enable Reaper for cluster maintenance and repairs'
+        enableMedusa:
+          type: boolean
+          title: Enable Medusa
+          description: Enable Medusa for backup and restore operations
+          default: false
+          ui:help: 'Enable Medusa for backup and restore (requires S3-compatible storage)'
+        enableAuthentication:
+          type: boolean
+          title: Enable Authentication
+          description: Enable password-based authentication
+          default: true
+          ui:help: 'Enable PasswordAuthenticator and CassandraAuthorizer'
+
+    - title: Backup Configuration (if Medusa enabled)
+      properties:
+        s3BucketName:
+          type: string
+          description: S3 bucket name for backups
+          default: "cassandra-backups"
+          ui:help: 'S3 bucket name for Medusa backups'
+        s3Endpoint:
+          type: string
+          description: S3 endpoint URL
+          default: "minio.minio.svc.cluster.local:9000"
+          ui:help: 'S3-compatible endpoint for backup storage'
+      dependencies:
+        enableMedusa:
+          oneOf:
+            - properties:
+                enableMedusa:
+                  const: false
+            - properties:
+                enableMedusa:
+                  const: true
+              required: [s3BucketName, s3Endpoint]
+
+  steps:
+    # Step 1: Generate Cassandra cluster manifests
+    - id: create-cassandra-manifests
+      name: Generate Cassandra Cluster Manifests
+      action: fetch:template
+      input:
+        url: ./skeleton/manifests
+        targetPath: ./manifests
+        values:
+          clusterName: ${{ parameters.clusterName }}
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          createNamespace: ${{ parameters.createNamespace }}
+          cassandraVersion: ${{ parameters.cassandraVersion }}
+          datacenterName: ${{ parameters.datacenterName }}
+          clusterSize: ${{ parameters.clusterSize }}
+          storageSize: ${{ parameters.storageSize }}
+          storageClass: ${{ parameters.storageClass }}
+          heapSize: ${{ parameters.heapSize }}
+          cpuRequests: ${{ parameters.cpuRequests }}
+          memoryRequests: ${{ parameters.memoryRequests }}
+          cpuLimits: ${{ parameters.cpuLimits }}
+          memoryLimits: ${{ parameters.memoryLimits }}
+          enableStargate: ${{ parameters.enableStargate }}
+          enableReaper: ${{ parameters.enableReaper }}
+          enableMedusa: ${{ parameters.enableMedusa }}
+          enableAuthentication: ${{ parameters.enableAuthentication }}
+          s3BucketName: ${{ parameters.s3BucketName }}
+          s3Endpoint: ${{ parameters.s3Endpoint }}
+          workspace: ${{ parameters.workspace }}
+
+    # Step 2: Generate README
+    - id: create-readme
+      name: Generate README
+      action: fetch:template
+      input:
+        url: ./skeleton/README.md
+        targetPath: ./README.md
+        values:
+          clusterName: ${{ parameters.clusterName }}
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          cassandraVersion: ${{ parameters.cassandraVersion }}
+          clusterSize: ${{ parameters.clusterSize }}
+          workspace: ${{ parameters.workspace }}
+
+    # Step 3: Generate catalog information
+    - id: fetch-catalog
+      name: Generate Catalog Info
+      action: fetch:template
+      input:
+        url: ./catalog-template
+        values:
+          clusterName: ${{ parameters.clusterName }}
+          envName: ${{ parameters.envName }}
+          namespace: ${{ parameters.namespace }}
+          cassandraVersion: ${{ parameters.cassandraVersion }}
+          datacenterName: ${{ parameters.datacenterName }}
+          clusterSize: ${{ parameters.clusterSize }}
+          enableStargate: ${{ parameters.enableStargate }}
+          enableReaper: ${{ parameters.enableReaper }}
+          enableMedusa: ${{ parameters.enableMedusa }}
+          workspace: ${{ parameters.workspace }}
+
+    # Step 4: Create repository with Cassandra configuration
+    - id: publish-config
+      name: Create Repository with Cassandra Configuration
+      action: publish:bitbucket
+      input:
+        description: Cassandra cluster ${{ parameters.clusterName }} configuration for ${{ parameters.envName }}
+        repoUrl: bitbucket.org?workspace=${{ parameters.workspace }}&repo=cassandra-${{ parameters.clusterName }}-${{ parameters.envName }}
+        defaultBranch: main
+        gitAuthorName: Backstage
+        gitAuthorEmail: backstage@example.com
+
+    # Step 5: Register in catalog
+    - id: register
+      name: Register Component in Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish-config'].output.repoContentsUrl }}
+        catalogInfoPath: '/catalog-info.yaml'
+        optional: true
+
+    # Step 6: Create ArgoCD Application for Cassandra Cluster
+    - id: create-argocd-app
+      name: Create ArgoCD Application for Cassandra Cluster
+      action: cnoe:create-argocd-app
+      input:
+        appName: cassandra-${{ parameters.clusterName }}-${{ parameters.envName }}
+        appNamespace: argocd
+        argoInstance: in-cluster
+        projectName: default
+        repoUrl: https://bitbucket.org/${{ parameters.workspace }}/cassandra-${{ parameters.clusterName }}-${{ parameters.envName }}
+        path: manifests
+        targetRevision: main
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: ${{ parameters.namespace }}
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+
+    # Step 7: Wait for ArgoCD to sync
+    - id: wait-for-sync
+      name: Wait for ArgoCD Application Sync
+      action: debug:wait
+      input:
+        seconds: 30
+
+    # Step 8: Validate cluster deployment
+    - id: validate-cluster
+      name: Validate Cassandra Cluster Deployment
+      action: debug:log
+      input:
+        message: |
+          🎉 **Cassandra Cluster Deployment Initiated!**
+          
+          ## ✅ What was created:
+          
+          📁 **Repository**: ${{ parameters.workspace }}/cassandra-${{ parameters.clusterName }}-${{ parameters.envName }}
+          🚀 **ArgoCD App**: cassandra-${{ parameters.clusterName }}-${{ parameters.envName }}
+          📋 **Catalog Component**: cassandra-${{ parameters.clusterName }}-${{ parameters.envName }}
+          🌍 **Environment**: ${{ parameters.envName }}
+          📦 **Namespace**: ${{ parameters.namespace }}
+          
+          ## 🔧 Cluster Configuration:
+          
+          - **Cluster Name**: ${{ parameters.clusterName }}
+          - **Cassandra Version**: ${{ parameters.cassandraVersion }}
+          - **Datacenter**: ${{ parameters.datacenterName }}
+          - **Nodes**: ${{ parameters.clusterSize }}
+          - **Storage per Node**: ${{ parameters.storageSize }}
+          - **Heap Size**: ${{ parameters.heapSize }}
+          - **Authentication**: ${{ parameters.enableAuthentication }}
+          
+          ## 🚀 Features Enabled:
+          
+          {% if parameters.enableStargate %}- ✅ **Stargate API Gateway**: REST and GraphQL access{% endif %}
+          {% if parameters.enableReaper %}- ✅ **Reaper**: Automated cluster repairs{% endif %}
+          {% if parameters.enableMedusa %}- ✅ **Medusa**: Backup and restore to S3{% endif %}
+          {% if parameters.enableAuthentication %}- ✅ **Authentication**: Password-based security{% endif %}
+          
+          ## 🔄 AUTOMATED DEPLOYMENT IN PROGRESS:
+          
+          ArgoCD is automatically deploying your Cassandra cluster!
+          
+          ### Monitor Progress:
+          - [Cassandra Cluster ArgoCD App](https://cnoe.localtest.me:8443/argocd/applications/argocd/cassandra-${{ parameters.clusterName }}-${{ parameters.envName }})
+          
+          ### Check Cluster Status (usually takes 10-15 minutes):
+          ```bash
+          kubectl get k8ssandracluster ${{ parameters.clusterName }} -n ${{ parameters.namespace }}
+          kubectl get pods -n ${{ parameters.namespace }}
+          ```
+          
+          ### Access Information:
+          - **Cassandra CQL**: ${{ parameters.clusterName }}-${{ parameters.datacenterName }}-service.${{ parameters.namespace }}.svc.cluster.local:9042
+          {% if parameters.enableStargate %}- **Stargate REST API**: ${{ parameters.clusterName }}-${{ parameters.datacenterName }}-stargate-service.${{ parameters.namespace }}.svc.cluster.local:8082{% endif %}
+          {% if parameters.enableStargate %}- **Stargate GraphQL**: ${{ parameters.clusterName }}-${{ parameters.datacenterName }}-stargate-service.${{ parameters.namespace }}.svc.cluster.local:8080{% endif %}
+          
+          ## 🎯 Next Steps:
+          
+          1. **Monitor ArgoCD Application**: Check deployment progress in ArgoCD
+          2. **Wait for Cluster Ready**: Usually takes 10-15 minutes for full deployment
+          3. **Create Keyspaces**: Set up your data model
+          4. **Connect Applications**: Use CQL or Stargate APIs for access
+          {% if parameters.enableAuthentication %}5. **Configure Users**: Set up additional database users{% endif %}
+
+  output:
+    links:
+      - title: Cassandra Cluster ArgoCD App
+        url: https://cnoe.localtest.me:8443/argocd/applications/argocd/cassandra-${{ parameters.clusterName }}-${{ parameters.envName }}
+      - title: Cassandra Configuration Repository
+        url: https://bitbucket.org/${{ parameters.workspace }}/cassandra-${{ parameters.clusterName }}-${{ parameters.envName }}
+      - title: Cassandra Cluster Component
+        icon: catalog
+        entityRef: component:default/cassandra-${{ parameters.clusterName }}-${{ parameters.envName }}
+    text:
+      - title: Cassandra Cluster Request Summary
+        content: |
+          Your Cassandra cluster has been requested!
+          
+          ## ✅ Cluster Details:
+          
+          - **Cluster**: ${{ parameters.clusterName }}
+          - **Environment**: ${{ parameters.envName }}
+          - **Namespace**: ${{ parameters.namespace }}
+          - **Nodes**: ${{ parameters.clusterSize }}
+          - **Version**: ${{ parameters.cassandraVersion }}
+          
+          ## 🔄 Next Steps:
+          
+          1. **Monitor Deployment**: Check ArgoCD application progress
+          2. **Wait for Ready State**: Cluster deployment takes 10-15 minutes
+          3. **Create Keyspaces**: Set up your database schema
+          4. **Connect Applications**: Use CQL or REST/GraphQL APIs
+          
+          ## 📞 Support:
+          
+          If you encounter issues, contact the platform team or check the ArgoCD application logs.

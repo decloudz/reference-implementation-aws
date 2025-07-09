@@ -1,0 +1,429 @@
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: platform-databases-${{ values.envName }}
+  title: Platform Databases (${{ values.envName | title }})
+  description: All platform service databases for ${{ values.envName }} environment
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:all-services-database
+    github.com/project-slug: giteaAdmin/platform-services-databases-${{ values.envName }}
+  tags:
+    - database
+    - platform
+    - ${{ values.envName }}
+  links:
+    - url: https://cnoe.localtest.me:8443/gitea/giteaAdmin/platform-services-databases-${{ values.envName }}
+      title: Repository
+      icon: github
+    - url: https://cnoe.localtest.me:8443/argocd/applications?search=database-setup-${{ values.envName }}
+      title: All Database ArgoCD Apps
+      icon: deployment
+spec:
+  owner: platform-team
+---
+{% if values.createAuthDb %}
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: authentication-service-database-${{ values.envName }}
+  title: Authentication Service Database (${{ values.envName | title }})
+  description: PostgreSQL database for authentication service in ${{ values.envName }} environment
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:all-services-database
+    argocd/app-name: authentication-service-database-setup-${{ values.envName }}
+    github.com/project-slug: giteaAdmin/platform-services-databases-${{ values.envName }}
+  tags:
+    - database
+    - postgresql
+    - authentication
+    - ${{ values.envName }}
+  links:
+    - url: https://cnoe.localtest.me:8443/argocd/applications/argocd/authentication-service-database-setup-${{ values.envName }}
+      title: ArgoCD Application
+      icon: deployment
+spec:
+  type: database
+  lifecycle: production
+  owner: platform-team
+  system: platform-databases-${{ values.envName }}
+  dependsOn:
+    - resource:default/postgresql-${{ values.envName }}
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: authentication-service-database-secret-${{ values.envName }}
+  title: Authentication Service Database Secret (${{ values.envName | title }})
+  description: Kubernetes secret containing database connection details for authentication service
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    kubernetes.io/secret-name: authentication-service-database
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - secret
+    - database
+    - authentication
+    - ${{ values.envName }}
+spec:
+  type: k8s-secret
+  lifecycle: production
+  owner: platform-team
+  system: platform-databases-${{ values.envName }}
+  dependsOn:
+    - component:default/authentication-service-database-${{ values.envName }}
+---
+{% endif %}
+
+{% if values.createBdmDb %}
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: bdm-service-database-${{ values.envName }}
+  title: BDM Service Database (${{ values.envName | title }})
+  description: PostgreSQL database for BDM service in ${{ values.envName }} environment
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:all-services-database
+    argocd/app-name: bdm-service-database-setup-${{ values.envName }}
+    github.com/project-slug: giteaAdmin/platform-services-databases-${{ values.envName }}
+  tags:
+    - database
+    - postgresql
+    - bdm
+    - ${{ values.envName }}
+  links:
+    - url: https://cnoe.localtest.me:8443/argocd/applications/argocd/bdm-service-database-setup-${{ values.envName }}
+      title: ArgoCD Application
+      icon: deployment
+spec:
+  type: database
+  lifecycle: production
+  owner: platform-team
+  system: platform-databases-${{ values.envName }}
+  dependsOn:
+    - resource:default/postgresql-${{ values.envName }}
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: bdm-service-database-secret-${{ values.envName }}
+  title: BDM Service Database Secret (${{ values.envName | title }})
+  description: Kubernetes secret containing database connection details for BDM service
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    kubernetes.io/secret-name: bdm-service-database
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - secret
+    - database
+    - bdm
+    - ${{ values.envName }}
+spec:
+  type: k8s-secret
+  lifecycle: production
+  owner: platform-team
+  system: platform-databases-${{ values.envName }}
+  dependsOn:
+    - component:default/bdm-service-database-${{ values.envName }}
+---
+{% endif %}
+
+{% if values.createLoiDb %}
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: loi-service-database-${{ values.envName }}
+  title: LOI Service Database (${{ values.envName | title }})
+  description: PostgreSQL database for LOI service in ${{ values.envName }} environment
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:all-services-database
+    argocd/app-name: loi-service-database-setup-${{ values.envName }}
+    github.com/project-slug: giteaAdmin/platform-services-databases-${{ values.envName }}
+  tags:
+    - database
+    - postgresql
+    - loi
+    - ${{ values.envName }}
+  links:
+    - url: https://cnoe.localtest.me:8443/argocd/applications/argocd/loi-service-database-setup-${{ values.envName }}
+      title: ArgoCD Application
+      icon: deployment
+spec:
+  type: database
+  lifecycle: production
+  owner: platform-team
+  system: platform-databases-${{ values.envName }}
+  dependsOn:
+    - resource:default/postgresql-${{ values.envName }}
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: loi-service-database-secret-${{ values.envName }}
+  title: LOI Service Database Secret (${{ values.envName | title }})
+  description: Kubernetes secret containing database connection details for LOI service
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    kubernetes.io/secret-name: loi-service-database
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - secret
+    - database
+    - loi
+    - ${{ values.envName }}
+spec:
+  type: k8s-secret
+  lifecycle: production
+  owner: platform-team
+  system: platform-databases-${{ values.envName }}
+  dependsOn:
+    - component:default/loi-service-database-${{ values.envName }}
+---
+{% endif %}
+
+{% if values.createIssueIngestionDb %}
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: issue-ingestion-service-database-${{ values.envName }}
+  title: Issue Ingestion Service Database (${{ values.envName | title }})
+  description: PostgreSQL database for issue ingestion service in ${{ values.envName }} environment
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:all-services-database
+    argocd/app-name: issue-ingestion-service-database-setup-${{ values.envName }}
+    github.com/project-slug: giteaAdmin/platform-services-databases-${{ values.envName }}
+  tags:
+    - database
+    - postgresql
+    - issue-ingestion
+    - ${{ values.envName }}
+  links:
+    - url: https://cnoe.localtest.me:8443/argocd/applications/argocd/issue-ingestion-service-database-setup-${{ values.envName }}
+      title: ArgoCD Application
+      icon: deployment
+spec:
+  type: database
+  lifecycle: production
+  owner: platform-team
+  system: platform-databases-${{ values.envName }}
+  dependsOn:
+    - resource:default/postgresql-${{ values.envName }}
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: issue-ingestion-service-database-secret-${{ values.envName }}
+  title: Issue Ingestion Service Database Secret (${{ values.envName | title }})
+  description: Kubernetes secret containing database connection details for issue ingestion service
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    kubernetes.io/secret-name: issue-ingestion-service-database
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - secret
+    - database
+    - issue-ingestion
+    - ${{ values.envName }}
+spec:
+  type: k8s-secret
+  lifecycle: production
+  owner: platform-team
+  system: platform-databases-${{ values.envName }}
+  dependsOn:
+    - component:default/issue-ingestion-service-database-${{ values.envName }}
+---
+{% endif %}
+
+{% if values.createIssueDb %}
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: issue-service-database-${{ values.envName }}
+  title: Issue Service Database (${{ values.envName | title }})
+  description: PostgreSQL database for issue service in ${{ values.envName }} environment
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:all-services-database
+    argocd/app-name: issue-service-database-setup-${{ values.envName }}
+    github.com/project-slug: giteaAdmin/platform-services-databases-${{ values.envName }}
+  tags:
+    - database
+    - postgresql
+    - issue
+    - ${{ values.envName }}
+  links:
+    - url: https://cnoe.localtest.me:8443/argocd/applications/argocd/issue-service-database-setup-${{ values.envName }}
+      title: ArgoCD Application
+      icon: deployment
+spec:
+  type: database
+  lifecycle: production
+  owner: platform-team
+  system: platform-databases-${{ values.envName }}
+  dependsOn:
+    - resource:default/postgresql-${{ values.envName }}
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: issue-service-database-secret-${{ values.envName }}
+  title: Issue Service Database Secret (${{ values.envName | title }})
+  description: Kubernetes secret containing database connection details for issue service
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    kubernetes.io/secret-name: issue-service-database
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - secret
+    - database
+    - issue
+    - ${{ values.envName }}
+spec:
+  type: k8s-secret
+  lifecycle: production
+  owner: platform-team
+  system: platform-databases-${{ values.envName }}
+  dependsOn:
+    - component:default/issue-service-database-${{ values.envName }}
+---
+{% endif %}
+
+{% if values.createSpreadsheetsDb %}
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: spreadsheets-service-database-${{ values.envName }}
+  title: Spreadsheets Service Database (${{ values.envName | title }})
+  description: PostgreSQL database for spreadsheets service in ${{ values.envName }} environment
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:all-services-database
+    argocd/app-name: spreadsheets-service-database-setup-${{ values.envName }}
+    github.com/project-slug: giteaAdmin/platform-services-databases-${{ values.envName }}
+  tags:
+    - database
+    - postgresql
+    - spreadsheets
+    - ${{ values.envName }}
+  links:
+    - url: https://cnoe.localtest.me:8443/argocd/applications/argocd/spreadsheets-service-database-setup-${{ values.envName }}
+      title: ArgoCD Application
+      icon: deployment
+spec:
+  type: database
+  lifecycle: production
+  owner: platform-team
+  system: platform-databases-${{ values.envName }}
+  dependsOn:
+    - resource:default/postgresql-${{ values.envName }}
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: spreadsheets-service-database-secret-${{ values.envName }}
+  title: Spreadsheets Service Database Secret (${{ values.envName | title }})
+  description: Kubernetes secret containing database connection details for spreadsheets service
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    kubernetes.io/secret-name: spreadsheets-service-database
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - secret
+    - database
+    - spreadsheets
+    - ${{ values.envName }}
+spec:
+  type: k8s-secret
+  lifecycle: production
+  owner: platform-team
+  system: platform-databases-${{ values.envName }}
+  dependsOn:
+    - component:default/spreadsheets-service-database-${{ values.envName }}
+---
+{% endif %}
+
+{% if values.createPrimeCloudDb %}
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: prime-cloud-database-${{ values.envName }}
+  title: Prime Cloud Database (${{ values.envName | title }})
+  description: PostgreSQL database for Prime Cloud platform in ${{ values.envName }} environment
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:all-services-database
+    argocd/app-name: prime-cloud-database-setup-${{ values.envName }}
+    github.com/project-slug: giteaAdmin/platform-services-databases-${{ values.envName }}
+  tags:
+    - database
+    - postgresql
+    - prime-cloud
+    - platform
+    - ${{ values.envName }}
+  links:
+    - url: https://cnoe.localtest.me:8443/argocd/applications/argocd/prime-cloud-database-setup-${{ values.envName }}
+      title: ArgoCD Application
+      icon: deployment
+spec:
+  type: database
+  lifecycle: production
+  owner: platform-team
+  system: platform-databases-${{ values.envName }}
+  dependsOn:
+    - resource:default/postgresql-${{ values.envName }}
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: prime-cloud-database-secret-${{ values.envName }}
+  title: Prime Cloud Database Secret (${{ values.envName | title }})
+  description: Kubernetes secret containing database connection details for Prime Cloud platform
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    kubernetes.io/secret-name: prime-cloud-database
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - secret
+    - database
+    - prime-cloud
+    - platform
+    - ${{ values.envName }}
+spec:
+  type: k8s-secret
+  lifecycle: production
+  owner: platform-team
+  system: platform-databases-${{ values.envName }}
+  dependsOn:
+    - component:default/prime-cloud-database-${{ values.envName }}
+---
+{% endif %}
+
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: postgresql-${{ values.envName }}
+  title: PostgreSQL Cluster (${{ values.envName | title }})
+  description: Shared PostgreSQL cluster for ${{ values.envName }} environment
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    argocd/app-name: ${{ values.postgresCluster }}-${{ values.envName }}
+    kubernetes.io/cluster-name: ${{ values.postgresCluster }}
+    kubernetes.io/namespace: ${{ values.postgresNamespace }}
+  tags:
+    - database
+    - postgresql
+    - cluster
+    - ${{ values.envName }}
+  links:
+    - url: https://cnoe.localtest.me:8443/argocd/applications/argocd/${{ values.postgresCluster }}-${{ values.envName }}
+      title: PostgreSQL Cluster ArgoCD App
+      icon: deployment
+spec:
+  type: database-cluster
+  lifecycle: production
+  owner: platform-team
+  system: platform-databases-${{ values.envName }}

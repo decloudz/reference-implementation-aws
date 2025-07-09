@@ -1,0 +1,6 @@
+site_name: 'Issue Ingestion Service Database'
+nav:
+  - Home: index.md
+  - idpBuilder: idpbuilder.md
+plugins:
+  - techdocs-core

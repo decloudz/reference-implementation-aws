@@ -1,0 +1,168 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: cassandra-${{ values.clusterName }}-${{ values.envName }}
+  title: Cassandra Cluster - ${{ values.clusterName | title }} (${{ values.envName | title }})
+  description: Apache Cassandra cluster for NoSQL data storage in ${{ values.envName }} environment
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:cassandra-cluster
+    argocd/app-name: cassandra-${{ values.clusterName }}-${{ values.envName }}
+    github.com/project-slug: giteaAdmin/cassandra-${{ values.clusterName }}-${{ values.envName }}
+    kubernetes.io/cluster-name: ${{ values.clusterName }}
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - cassandra
+    - nosql
+    - database
+    - data-infrastructure
+    - ${{ values.envName }}
+  links:
+    - url: https://cnoe.localtest.me:8443/argocd/applications/argocd/cassandra-${{ values.clusterName }}-${{ values.envName }}
+      title: ArgoCD Application
+      icon: deployment
+    - url: https://cnoe.localtest.me:8443/gitea/giteaAdmin/cassandra-${{ values.clusterName }}-${{ values.envName }}
+      title: Configuration Repository
+      icon: github
+spec:
+  type: data-infrastructure
+  lifecycle: production
+  owner: platform-team
+  system: data-infrastructure-${{ values.envName }}
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: cassandra-${{ values.clusterName }}-service-${{ values.envName }}
+  title: Cassandra Service (${{ values.clusterName | title }} - ${{ values.envName | title }})
+  description: Cassandra CQL service for client connections
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    kubernetes.io/service-name: ${{ values.clusterName }}-${{ values.datacenterName }}-service
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - cassandra
+    - service
+    - cql
+    - ${{ values.envName }}
+spec:
+  type: k8s-service
+  lifecycle: production
+  owner: platform-team
+  system: data-infrastructure-${{ values.envName }}
+  dependsOn:
+    - component:default/cassandra-${{ values.clusterName }}-${{ values.envName }}
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: cassandra-${{ values.clusterName }}-nodes-${{ values.envName }}
+  title: Cassandra Nodes (${{ values.clusterName | title }} - ${{ values.envName | title }})
+  description: Cassandra database nodes for data storage
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    kubernetes.io/statefulset-name: ${{ values.clusterName }}-${{ values.datacenterName }}-default-sts
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - cassandra
+    - nodes
+    - statefulset
+    - ${{ values.envName }}
+spec:
+  type: k8s-statefulset
+  lifecycle: production
+  owner: platform-team
+  system: data-infrastructure-${{ values.envName }}
+  dependsOn:
+    - component:default/cassandra-${{ values.clusterName }}-${{ values.envName }}
+---
+{% if values.enableStargate %}
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: stargate-${{ values.clusterName }}-${{ values.envName }}
+  title: Stargate API Gateway (${{ values.clusterName | title }} - ${{ values.envName | title }})
+  description: Stargate API gateway for REST and GraphQL access to Cassandra
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    kubernetes.io/deployment-name: ${{ values.clusterName }}-${{ values.datacenterName }}-stargate
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - stargate
+    - api-gateway
+    - rest
+    - graphql
+    - ${{ values.envName }}
+spec:
+  type: k8s-deployment
+  lifecycle: production
+  owner: platform-team
+  system: data-infrastructure-${{ values.envName }}
+  dependsOn:
+    - component:default/cassandra-${{ values.clusterName }}-${{ values.envName }}
+---
+{% endif %}
+{% if values.enableReaper %}
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: reaper-${{ values.clusterName }}-${{ values.envName }}
+  title: Cassandra Reaper (${{ values.clusterName | title }} - ${{ values.envName | title }})
+  description: Cassandra Reaper for automated cluster repairs
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    kubernetes.io/deployment-name: ${{ values.clusterName }}-reaper
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - reaper
+    - maintenance
+    - repair
+    - ${{ values.envName }}
+spec:
+  type: k8s-deployment
+  lifecycle: production
+  owner: platform-team
+  system: data-infrastructure-${{ values.envName }}
+  dependsOn:
+    - component:default/cassandra-${{ values.clusterName }}-${{ values.envName }}
+---
+{% endif %}
+{% if values.enableMedusa %}
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: medusa-${{ values.clusterName }}-${{ values.envName }}
+  title: Medusa Backup (${{ values.clusterName | title }} - ${{ values.envName | title }})
+  description: Medusa backup and restore service for Cassandra
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    kubernetes.io/container-name: medusa
+    kubernetes.io/namespace: ${{ values.namespace }}
+  tags:
+    - medusa
+    - backup
+    - restore
+    - ${{ values.envName }}
+spec:
+  type: k8s-container
+  lifecycle: production
+  owner: platform-team
+  system: data-infrastructure-${{ values.envName }}
+  dependsOn:
+    - component:default/cassandra-${{ values.clusterName }}-${{ values.envName }}
+---
+{% endif %}
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: data-infrastructure-${{ values.envName }}
+  title: Data Infrastructure (${{ values.envName | title }})
+  description: Data infrastructure components for ${{ values.envName }} environment
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+  tags:
+    - data-infrastructure
+    - platform
+    - ${{ values.envName }}
+spec:
+  owner: platform-team

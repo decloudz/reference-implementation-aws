@@ -1,0 +1,63 @@
+{% if values.createNamespace %}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${{ values.namespace }}
+  labels:
+    app.kubernetes.io/name: cassandra
+    app.kubernetes.io/instance: ${{ values.clusterName }}
+    app.kubernetes.io/managed-by: backstage
+    environment: ${{ values.envName }}
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:cassandra-cluster
+---
+{% endif %}
+apiVersion: k8ssandra.io/v1alpha1
+kind: K8ssandraCluster
+metadata:
+  name: ${{ values.clusterName }}
+  namespace: ${{ values.namespace }}
+  labels:
+    app.kubernetes.io/name: cassandra
+    app.kubernetes.io/instance: ${{ values.clusterName }}
+    app.kubernetes.io/managed-by: backstage
+    app.kubernetes.io/version: ${{ values.cassandraVersion }}
+    environment: ${{ values.envName }}
+  annotations:
+    backstage.io/managed-by-location: scaffolder
+    backstage.io/managed-by-origin-location: template:cassandra-cluster
+spec:
+  cassandra:
+    serverVersion: ${{ values.cassandraVersion }}
+    clusterName: ${{ values.clusterName }}-cluster
+    mgmtAPIHeap: 64Mi
+    {% if values.enableAuthentication %}
+    config:
+      cassandra-yaml:
+        authenticator: PasswordAuthenticator
+        authorizer: CassandraAuthorizer
+        role_manager: CassandraRoleManager
+    {% endif %}
+    resources:
+      requests:
+        cpu: ${{ values.cpuRequests }}
+        memory: ${{ values.memoryRequests }}
+      limits:
+        cpu: ${{ values.cpuLimits }}
+        memory: ${{ values.memoryLimits }}
+    datacenters:
+      - metadata:
+          name: ${{ values.datacenterName }}
+        size: ${{ values.clusterSize }}
+        config:
+          jvmOptions:
+            heapSize: ${{ values.heapSize }}
+        storageConfig:
+          cassandraDataVolumeClaimSpec:
+            storageClassName: ${{ values.storageClass }}
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: ${{ values.storageSize }}
