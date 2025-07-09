@@ -80,9 +80,11 @@ backstage:
       locations:
         - type: url
           target: https://github.com/cnoe-io/reference-implementation-aws/blob/ref-impl-v2/templates/backstage/catalog-info.yaml
-      bitbucket_locations:
+          provider: github
         - type: url
           target: https://bitbucket.org/your-workspace/reference-implementation-aws/src/ref-impl-v2/templates/backstage/catalog-info.yaml
+          provider: bitbucket
+          enabled: false  # Set to true when enabling Bitbucket
     kubernetes:
       serviceLocatorMethod:
         type: 'multiTenant'

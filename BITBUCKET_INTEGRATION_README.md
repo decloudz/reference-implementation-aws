@@ -101,8 +101,10 @@ graph TB
 
 5. **🚀 Deploy**
    ```bash
-   # Deploy Bitbucket integration
-   ./scripts/deploy-bitbucket-integration.sh
+   # Bitbucket integration is automatically deployed as part of main installation
+   ./scripts/install.sh
+   # OR for idpbuilder installations:
+   # ./scripts/install-using-idpbuilder.sh
    ```
 
 6. **✅ Validate**

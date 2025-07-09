@@ -53,6 +53,33 @@ EOF
 echo -e "${BOLD}${GREEN}🔄 Running idpbuilder to apply packages...${NC}"
 idpbuilder create --use-path-routing --protocol http --package "$REPO_ROOT/packages" -c "argocd:${CLUSTER_SECRET_FILE}" > /dev/null 2>&1
 
+# Apply Git provider specific manifests after idpbuilder
+echo -e "${CYAN}🔍 Detecting enabled Git providers...${NC}"
+
+# Check for GitHub integration
+if yq eval '.git_providers.github.enabled // .repo.url | test("github")' "$CONFIG_FILE" | grep -q "true"; then
+    echo -e "${GREEN}✅ GitHub integration detected${NC}"
+fi
+
+# Check for Bitbucket integration
+if yq eval '.git_providers.bitbucket.enabled' "$CONFIG_FILE" 2>/dev/null | grep -q "true"; then
+    echo -e "${GREEN}✅ Bitbucket integration detected - applying Bitbucket manifests${NC}"
+    
+    # Apply Backstage Bitbucket manifests
+    if [ -f "${REPO_ROOT}/packages/backstage/manifests/external-secrets-bitbucket.yaml" ]; then
+        kubectl apply -f "${REPO_ROOT}/packages/backstage/manifests/external-secrets-bitbucket.yaml" > /dev/null 2>&1
+        echo -e "${CYAN}  Applied Backstage Bitbucket external secrets${NC}"
+    fi
+    
+    # Apply ArgoCD Bitbucket manifests  
+    if [ -f "${REPO_ROOT}/packages/argo-cd/manifests/argo-cd-bitbucket-app.yaml" ]; then
+        kubectl apply -f "${REPO_ROOT}/packages/argo-cd/manifests/argo-cd-bitbucket-app.yaml" > /dev/null 2>&1
+        echo -e "${CYAN}  Applied ArgoCD Bitbucket external secrets${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠️  Bitbucket integration not enabled${NC}"
+fi
+
 echo -e "${YELLOW}⏳ Waiting for local addons-appset to be healthy...${NC}"
 # sleep 60 # Wait 1 minute before checking the status
 kubectl wait --for=jsonpath=.status.health.status=Healthy  -n argocd applications/addons-appset-$CLUSTER_NAME --timeout=15m

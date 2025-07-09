@@ -93,11 +93,13 @@ data:
         {{- toYaml .Values.backstage.config.catalog.rules | nindent 8 }}
       locations:
         {{- range .Values.backstage.config.catalog.locations }}
+        {{- if not .provider }}
         - type: {{ .type }}
           target: {{ .target }}
-        {{- end }}
-        {{- if .Values.backstage.config.integrations.bitbucket.enabled }}
-        {{- range .Values.backstage.config.catalog.bitbucket_locations }}
+        {{- else if and (eq .provider "github") (.Values.backstage.config.integrations.github.enabled) }}
+        - type: {{ .type }}
+          target: {{ .target }}
+        {{- else if and (eq .provider "bitbucket") (.Values.backstage.config.integrations.bitbucket.enabled) (default false .enabled) }}
         - type: {{ .type }}
           target: {{ .target }}
         {{- end }}

@@ -200,6 +200,6 @@ else
     echo -e "${CYAN}2. Verify Bitbucket credentials and permissions${NC}"
     echo -e "${CYAN}3. Ensure External Secrets Operator is running${NC}"
     echo -e "${CYAN}4. Check ArgoCD and Backstage logs for errors${NC}"
-    echo -e "${CYAN}5. Run './scripts/deploy-bitbucket-integration.sh' to redeploy${NC}"
+    echo -e "${CYAN}5. Run './scripts/install.sh' or './scripts/install-using-idpbuilder.sh' to redeploy${NC}"
     exit 1
 fi

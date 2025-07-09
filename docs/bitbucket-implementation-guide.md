@@ -684,39 +684,16 @@ spec:
 
 ### Step 6: Deployment and Validation
 
-#### 6.1 Deployment Script
+#### 6.1 Integrated Deployment
 
-Create `scripts/deploy-bitbucket-integration.sh`:
+The Bitbucket integration is now automatically deployed as part of the main installation scripts (`scripts/install.sh` and `scripts/install-using-idpbuilder.sh`). The installation scripts detect enabled Git providers and apply appropriate manifests automatically.
 
-```bash
-#!/bin/bash
-set -e
+**Key improvements in the integrated approach:**
 
-echo "Deploying Bitbucket integration..."
-
-# Check if Bitbucket is enabled in config
-BITBUCKET_ENABLED=$(yq eval '.git_providers.bitbucket.enabled' config.yaml)
-
-if [ "$BITBUCKET_ENABLED" = "true" ]; then
-    echo "Bitbucket integration is enabled, proceeding with deployment..."
-    
-    # Apply Bitbucket external secrets
-    kubectl apply -f packages/backstage/manifests/external-secrets-bitbucket.yaml
-    kubectl apply -f packages/argo-cd/manifests/argo-cd-bitbucket-app.yaml
-    
-    # Wait for secrets to be created
-    echo "Waiting for Bitbucket secrets to be created..."
-    kubectl wait --for=condition=Ready externalsecret/bitbucket-integration -n backstage --timeout=300s
-    kubectl wait --for=condition=Ready externalsecret/bitbucket-env-vars -n backstage --timeout=300s
-    
-    # Restart Backstage to pick up new configuration
-    kubectl rollout restart deployment/backstage -n backstage
-    
-    echo "Bitbucket integration deployed successfully!"
-else
-    echo "Bitbucket integration is disabled in config.yaml"
-fi
-```
+- **Automatic Detection**: Installation scripts automatically detect enabled Git providers
+- **Single Deployment Flow**: No separate deployment steps required
+- **Consistent Experience**: Same deployment process regardless of Git provider
+- **Reduced Complexity**: Fewer scripts to maintain and understand
 
 #### 6.2 Validation Script
 
@@ -769,7 +746,8 @@ echo "Validation completed!"
 
 4. **Deploy integration:**
    ```bash
-   ./scripts/deploy-bitbucket-integration.sh
+   # Bitbucket integration is automatically deployed with main installation
+   ./scripts/install.sh
    ```
 
 5. **Validate:**

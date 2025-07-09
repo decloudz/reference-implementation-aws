@@ -79,6 +79,34 @@ echo -e "${BOLD}${GREEN}🔄 Applying custom manifests...${NC}"
 kubectl apply -f "$ARGOCD_CUSTOM_MANIFESTS_PATH" --kubeconfig $KUBECONFIG_FILE > /dev/null 2>&1
 kubectl apply -f "$EXTERNAL_SECRETS_CUSTOM_MANIFESTS_PATH" --kubeconfig $KUBECONFIG_FILE > /dev/null 2>&1
 
+# Apply Git provider specific manifests
+echo -e "${CYAN}🔍 Detecting enabled Git providers...${NC}"
+
+# Check for GitHub integration
+if yq eval '.git_providers.github.enabled // .repo.url | test("github")' "$CONFIG_FILE" | grep -q "true"; then
+    echo -e "${GREEN}✅ GitHub integration detected${NC}"
+    # GitHub manifests are already applied above
+fi
+
+# Check for Bitbucket integration
+if yq eval '.git_providers.bitbucket.enabled' "$CONFIG_FILE" 2>/dev/null | grep -q "true"; then
+    echo -e "${GREEN}✅ Bitbucket integration detected - applying Bitbucket manifests${NC}"
+    
+    # Apply Backstage Bitbucket manifests
+    if [ -f "${REPO_ROOT}/packages/backstage/manifests/external-secrets-bitbucket.yaml" ]; then
+        kubectl apply -f "${REPO_ROOT}/packages/backstage/manifests/external-secrets-bitbucket.yaml" --kubeconfig $KUBECONFIG_FILE > /dev/null 2>&1
+        echo -e "${CYAN}  Applied Backstage Bitbucket external secrets${NC}"
+    fi
+    
+    # Apply ArgoCD Bitbucket manifests  
+    if [ -f "${REPO_ROOT}/packages/argo-cd/manifests/argo-cd-bitbucket-app.yaml" ]; then
+        kubectl apply -f "${REPO_ROOT}/packages/argo-cd/manifests/argo-cd-bitbucket-app.yaml" --kubeconfig $KUBECONFIG_FILE > /dev/null 2>&1
+        echo -e "${CYAN}  Applied ArgoCD Bitbucket external secrets${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠️  Bitbucket integration not enabled${NC}"
+fi
+
 echo -e "${BOLD}${GREEN}🔄 Installing Addons AppSet Argo CD application...${NC}"
 helm upgrade --install addons-appset ${REPO_ROOT}/packages/appset-chart \
   --namespace argocd \

@@ -28,9 +28,10 @@ I've successfully implemented the core Bitbucket integration for the CNOE Refere
 - ✅ Multiple repository credential configurations
 
 #### 5. **Automation Scripts**
-- ✅ Deployment script (`scripts/deploy-bitbucket-integration.sh`)
+- ✅ Integrated deployment (within main installation scripts)
 - ✅ Validation script (`scripts/validate-bitbucket-integration.sh`)
 - ✅ Configuration template (`private/bitbucket-config.yaml.template`)
+- ✅ Configuration migration script (`scripts/migrate-config.sh`)
 
 #### 6. **Documentation**
 - ✅ Comprehensive integration plan
@@ -65,7 +66,10 @@ I've successfully implemented the core Bitbucket integration for the CNOE Refere
 
 4. **Deploy Integration**
    ```bash
-   ./scripts/deploy-bitbucket-integration.sh
+   # Bitbucket manifests are automatically applied based on configuration
+   ./scripts/install.sh
+   # OR for idpbuilder installations:
+   # ./scripts/install-using-idpbuilder.sh
    ```
 
 5. **Validate Integration**
@@ -140,7 +144,7 @@ primary_git_provider: "github"  # or "bitbucket"
 - ✅ **Zero-Downtime Migration**: Add Bitbucket without disrupting GitHub
 - ✅ **Flexible Authentication**: Support for multiple auth methods
 - ✅ **Backward Compatibility**: Existing GitHub setups continue to work
-- ✅ **Automated Deployment**: Scripts handle complex deployment process
+- ✅ **Integrated Deployment**: Bitbucket support automatically deployed with main installation
 - ✅ **Comprehensive Validation**: Automated testing and validation
 
 ## 📊 Current Status
@@ -182,6 +186,7 @@ primary_git_provider: "github"  # or "bitbucket"
    - Run validation script to identify specific issues
    - Check Kubernetes cluster connectivity
    - Verify all prerequisites are met
+   - Re-run main installation script if needed
 
 ### Debug Commands
 
